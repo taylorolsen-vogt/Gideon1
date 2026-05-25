@@ -1,0 +1,27 @@
+name: Gideon1
+options:
+  bundleIdPrefix: com.taylorolsenvogt
+settings:
+  base:
+    DEVELOPMENT_TEAM: ""
+    SWIFT_VERSION: 6.0
+    CURRENT_PROJECT_VERSION: 1
+    MARKETING_VERSION: 1.0
+targets:
+  Gideon1:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: Gideon1
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.taylorolsenvogt.Gideon1
+        INFOPLIST_KEY_CFBundleDisplayName: Gideon1
+        INFOPLIST_KEY_LSRequiresIPhoneOS: YES
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+        INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: UIInterfaceOrientationPortrait
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGN_STYLE: Automatic
