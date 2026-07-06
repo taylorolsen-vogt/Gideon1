@@ -57,7 +57,7 @@ private struct TabIcon: View {
             Image(systemName: "square.grid.2x2")
                 .font(.system(size: 16, weight: .regular))
                 .symbolRenderingMode(.monochrome)
-        case .health:
+        case .connections:
             ChipTabMark(size: 20, color: isActive ? AppTheme.textPrimary : AppTheme.textTertiary)
         }
     }

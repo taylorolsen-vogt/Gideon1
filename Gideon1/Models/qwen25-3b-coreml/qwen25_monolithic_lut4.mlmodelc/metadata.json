@@ -1,0 +1,117 @@
+[
+  {
+    "metadataOutputVersion" : "3.0",
+    "storagePrecision" : "Mixed (Float16, Int4)",
+    "outputSchema" : [
+      {
+        "hasShapeFlexibility" : "0",
+        "isOptional" : "0",
+        "dataType" : "Float16",
+        "formattedType" : "MultiArray (Float16)",
+        "shortDescription" : "",
+        "shape" : "[]",
+        "name" : "logits",
+        "type" : "MultiArray"
+      }
+    ],
+    "modelParameters" : [
+
+    ],
+    "specificationVersion" : 9,
+    "mlProgramOperationTypeHistogram" : {
+      "Ios18.expandDims" : 62,
+      "Range1d" : 1,
+      "Ios18.cos" : 1,
+      "Ios18.mul" : 310,
+      "Ios18.matmul" : 1,
+      "Ios18.rsqrt" : 57,
+      "Ios16.reduceMean" : 57,
+      "Ios18.realDiv" : 56,
+      "Ios18.scaledDotProductAttention" : 28,
+      "Ios18.sin" : 1,
+      "Ios18.readState" : 58,
+      "Tile" : 56,
+      "Ios18.gather" : 89,
+      "Ios18.add" : 171,
+      "Ios18.writeState" : 56,
+      "Ios18.sliceUpdate" : 56,
+      "Ios18.reshape" : 168,
+      "Shape" : 144,
+      "Ios18.linear" : 197,
+      "Ios18.concat" : 171,
+      "Ios18.transpose" : 113,
+      "Ios18.sub" : 1,
+      "Ios18.pow" : 57,
+      "Ios18.cast" : 177,
+      "Ios18.silu" : 28,
+      "Ios18.sliceByIndex" : 252,
+      "Ios18.constexprBlockwiseShiftScale" : 197
+    },
+    "computePrecision" : "Mixed (Float16, Float32, Int16, Int32, UInt16)",
+    "isUpdatable" : "0",
+    "stateSchema" : [
+      {
+        "dataType" : "Float16",
+        "isOptional" : "0",
+        "formattedType" : "State (Float16 28 × 1 × 2 × 2048 × 128)",
+        "shortDescription" : "",
+        "shape" : "[28, 1, 2, 2048, 128]",
+        "name" : "key_cache",
+        "type" : "State"
+      },
+      {
+        "dataType" : "Float16",
+        "isOptional" : "0",
+        "formattedType" : "State (Float16 28 × 1 × 2 × 2048 × 128)",
+        "shortDescription" : "",
+        "shape" : "[28, 1, 2, 2048, 128]",
+        "name" : "value_cache",
+        "type" : "State"
+      }
+    ],
+    "availability" : {
+      "macOS" : "15.0",
+      "tvOS" : "18.0",
+      "visionOS" : "2.0",
+      "watchOS" : "11.0",
+      "iOS" : "18.0",
+      "macCatalyst" : "18.0"
+    },
+    "modelType" : {
+      "name" : "MLModelType_mlProgram"
+    },
+    "userDefinedMetadata" : {
+      "com.github.apple.coremltools.source_dialect" : "TorchScript",
+      "com.github.apple.coremltools.source" : "torch==2.5.1",
+      "com.github.apple.coremltools.version" : "8.1"
+    },
+    "inputSchema" : [
+      {
+        "dataType" : "Int32",
+        "hasShapeFlexibility" : "1",
+        "isOptional" : "0",
+        "shapeFlexibility" : "1 × 1...2048",
+        "shapeRange" : "[[1, 1], [1, 2048]]",
+        "formattedType" : "MultiArray (Int32 1 × 1)",
+        "type" : "MultiArray",
+        "shape" : "[1, 1]",
+        "name" : "input_ids",
+        "shortDescription" : ""
+      },
+      {
+        "dataType" : "Float16",
+        "hasShapeFlexibility" : "1",
+        "isOptional" : "0",
+        "shapeFlexibility" : "1 × 1 × 1...2048 × 1...2048",
+        "shapeRange" : "[[1, 1], [1, 1], [1, 2048], [1, 2048]]",
+        "formattedType" : "MultiArray (Float16 1 × 1 × 1 × 1)",
+        "type" : "MultiArray",
+        "shape" : "[1, 1, 1, 1]",
+        "name" : "causal_mask",
+        "shortDescription" : ""
+      }
+    ],
+    "generatedClassName" : "Qwen2_5_Coder_1_5B_Instruct_4bit",
+    "method" : "predict"
+  }
+]

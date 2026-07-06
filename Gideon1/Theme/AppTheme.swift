@@ -11,9 +11,9 @@ enum AppTheme {
 
     // Text.
     static let textPrimary = Color(red: 0.07, green: 0.08, blue: 0.10)
-    static let textSecondary = Color(red: 0.07, green: 0.08, blue: 0.10).opacity(0.55)
-    static let textTertiary = Color(red: 0.07, green: 0.08, blue: 0.10).opacity(0.32)
-    static let textMuted = Color(red: 0.07, green: 0.08, blue: 0.10).opacity(0.22)
+    static let textSecondary = Color(red: 0.07, green: 0.08, blue: 0.10).opacity(0.64)
+    static let textTertiary = Color(red: 0.07, green: 0.08, blue: 0.10).opacity(0.42)
+    static let textMuted = Color(red: 0.07, green: 0.08, blue: 0.10).opacity(0.30)
 
     // Accents.
     static let statusGreen = Color(red: 0.20, green: 0.78, blue: 0.46)

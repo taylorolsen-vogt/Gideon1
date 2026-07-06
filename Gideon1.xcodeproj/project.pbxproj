@@ -7,46 +7,70 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		E1A1D4E33F9A4D4FA1C20001 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = E1A1D4E33F9A4D4FA1C20002 /* Assets.xcassets */; };
-		E1A1D4E33F9A4D4FA1C20010 /* WaterOrbShaders.metal in Sources */ = {isa = PBXBuildFile; fileRef = E1A1D4E33F9A4D4FA1C20011 /* WaterOrbShaders.metal */; };
+		0624ED8E16D6D97571D4D13B /* GideonAgentHarness.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B67CF26DEA2E7AACE08B33B /* GideonAgentHarness.swift */; };
 		08ADE29D07514CAA212D5C9A /* Eyebrow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E617E9D710DC33CBF6EB51E /* Eyebrow.swift */; };
+		16A34609ACB10716E8408BF4 /* LocalQwenRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FE319335FD67A697751E103 /* LocalQwenRuntime.swift */; };
 		1BD9441ACEAB3A5236059086 /* TabBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A125BD1FA520BB8DF6A2B08 /* TabBar.swift */; };
+		1F9DAF7D99D514EC0E5E6E69 /* tokenizer_config.json in Resources */ = {isa = PBXBuildFile; fileRef = A04FC94CB7E761BE3B9D5241 /* tokenizer_config.json */; };
+		22627A8688722843F5D29471 /* GideonModelSelectionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF1D25D46A6316C4D1646591 /* GideonModelSelectionStore.swift */; };
 		3149FE406B5E8388281E546D /* Tab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 798636E5632034927B248117 /* Tab.swift */; };
+		4208F38CA299DDC20E3436B7 /* ChatSessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 285420EF9261E9ABD36EDFC0 /* ChatSessionStore.swift */; };
+		43DC6D688BD811DB426BBA04 /* RemoteGideonRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = A36AD7E10E3FA7F3FE89AB19 /* RemoteGideonRuntime.swift */; };
 		43EF7ED09044CF10F19E24CF /* CollapseChevron.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1670874F552E424E2FB83053 /* CollapseChevron.swift */; };
+		4C8C2C387DEF84CB1B96FA49 /* LocalModelRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = BAE371E36CFBA9D23025B93B /* LocalModelRegistry.swift */; };
+		5C706D6EEF370A51AD5297D7 /* SafariSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7F690ABFF4E5C698D872B89 /* SafariSheetView.swift */; };
 		60410A8FCE64C7B9A56C50C3 /* SectionRowHeader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26871B360845F7707B09BB52 /* SectionRowHeader.swift */; };
 		698FDB746F15DCCD5D7DC645 /* ActivityView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F91AEAB9A993E941E5C077F /* ActivityView.swift */; };
+		704DB39F3DEFDAC402A0889E /* ProviderConnectionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E8285D216FC315F0A8EED38 /* ProviderConnectionStore.swift */; };
 		74B69411C18F2A5CDFD7FDDF /* MessagesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2AEBCCB831C2D20CC92215A1 /* MessagesView.swift */; };
 		7DD0F6E980C3D4A954BA1CD4 /* OrbView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBFFE94C8192315FF97C584B /* OrbView.swift */; };
 		9117D798667BFA61387B517E /* GlassCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02E4C4CBAC50649F7CC66A2D /* GlassCard.swift */; };
 		923692A225192425A5004137 /* AgentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B40D9431530BAD3C6ACA9626 /* AgentView.swift */; };
+		9D52DEA8C936CBC90D8D45FF /* WaterOrbShaders.metal in Sources */ = {isa = PBXBuildFile; fileRef = 5B669B2EA91017976CB40A21 /* WaterOrbShaders.metal */; };
 		A9DAB7BE8F16D6B38168A335 /* ProjectView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAB27468C6643AFFC47F874D /* ProjectView.swift */; };
 		AEB290BC34498A6AE246CFFE /* BotMark.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97666437CFDAAC08CDC9837E /* BotMark.swift */; };
 		BADDB794F300574A1A36690B /* HealthView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C127D7B7FADA19172886A0A /* HealthView.swift */; };
 		BBCA746F1F8404A60C848689 /* Gideon1App.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D3F94B0E77EC97D7B3B7023 /* Gideon1App.swift */; };
+		D242AF3E32905FBAE1D6931B /* SecureKeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05D05470E994BA80551551EF /* SecureKeyStore.swift */; };
+		D8C80E390916CE651524D520 /* tokenizer.json in Resources */ = {isa = PBXBuildFile; fileRef = 0917FC4F30E5F51BD690B779 /* tokenizer.json */; };
+		E54FA15122E17EE67A8A0332 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 93ADA970735486EA8A983C61 /* Assets.xcassets */; };
 		ED7131E6864BA763E9EEC384 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0026276E871277C3FCE5115A /* RootView.swift */; };
+		F05EB27F3CE0D26E18C32266 /* qwen25_monolithic_lut4.mlmodelc in Resources */ = {isa = PBXBuildFile; fileRef = E7F7C85EAD72083C17980B10 /* qwen25_monolithic_lut4.mlmodelc */; };
 		F14319C54B858060C62D6BCF /* AppTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCE9B300606D623B4E02A72B /* AppTheme.swift */; };
 		F455578A71B5CABCE2C12AEF /* GlassPill.swift in Sources */ = {isa = PBXBuildFile; fileRef = F458B4E4E31E53F603148AF7 /* GlassPill.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		E1A1D4E33F9A4D4FA1C20002 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
-		E1A1D4E33F9A4D4FA1C20011 /* WaterOrbShaders.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = WaterOrbShaders.metal; sourceTree = "<group>"; };
 		0026276E871277C3FCE5115A /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		02E4C4CBAC50649F7CC66A2D /* GlassCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlassCard.swift; sourceTree = "<group>"; };
+		05D05470E994BA80551551EF /* SecureKeyStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecureKeyStore.swift; sourceTree = "<group>"; };
+		0917FC4F30E5F51BD690B779 /* tokenizer.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = tokenizer.json; sourceTree = "<group>"; };
 		1670874F552E424E2FB83053 /* CollapseChevron.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CollapseChevron.swift; sourceTree = "<group>"; };
 		26871B360845F7707B09BB52 /* SectionRowHeader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SectionRowHeader.swift; sourceTree = "<group>"; };
+		285420EF9261E9ABD36EDFC0 /* ChatSessionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatSessionStore.swift; sourceTree = "<group>"; };
 		2AEBCCB831C2D20CC92215A1 /* MessagesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessagesView.swift; sourceTree = "<group>"; };
+		2FE319335FD67A697751E103 /* LocalQwenRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalQwenRuntime.swift; sourceTree = "<group>"; };
 		32D473FE99076BE4152B56E7 /* Gideon1.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Gideon1.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		4C127D7B7FADA19172886A0A /* HealthView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthView.swift; sourceTree = "<group>"; };
 		5A125BD1FA520BB8DF6A2B08 /* TabBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabBar.swift; sourceTree = "<group>"; };
+		5B669B2EA91017976CB40A21 /* WaterOrbShaders.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = WaterOrbShaders.metal; sourceTree = "<group>"; };
 		798636E5632034927B248117 /* Tab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tab.swift; sourceTree = "<group>"; };
+		7B67CF26DEA2E7AACE08B33B /* GideonAgentHarness.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GideonAgentHarness.swift; sourceTree = "<group>"; };
 		8D3F94B0E77EC97D7B3B7023 /* Gideon1App.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Gideon1App.swift; sourceTree = "<group>"; };
+		93ADA970735486EA8A983C61 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		97666437CFDAAC08CDC9837E /* BotMark.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BotMark.swift; sourceTree = "<group>"; };
 		9E617E9D710DC33CBF6EB51E /* Eyebrow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Eyebrow.swift; sourceTree = "<group>"; };
+		9E8285D216FC315F0A8EED38 /* ProviderConnectionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProviderConnectionStore.swift; sourceTree = "<group>"; };
 		9F91AEAB9A993E941E5C077F /* ActivityView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityView.swift; sourceTree = "<group>"; };
+		A04FC94CB7E761BE3B9D5241 /* tokenizer_config.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = tokenizer_config.json; sourceTree = "<group>"; };
+		A36AD7E10E3FA7F3FE89AB19 /* RemoteGideonRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteGideonRuntime.swift; sourceTree = "<group>"; };
 		B40D9431530BAD3C6ACA9626 /* AgentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentView.swift; sourceTree = "<group>"; };
+		BAE371E36CFBA9D23025B93B /* LocalModelRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalModelRegistry.swift; sourceTree = "<group>"; };
 		BCE9B300606D623B4E02A72B /* AppTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppTheme.swift; sourceTree = "<group>"; };
+		BF1D25D46A6316C4D1646591 /* GideonModelSelectionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GideonModelSelectionStore.swift; sourceTree = "<group>"; };
 		CBFFE94C8192315FF97C584B /* OrbView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrbView.swift; sourceTree = "<group>"; };
+		D7F690ABFF4E5C698D872B89 /* SafariSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SafariSheetView.swift; sourceTree = "<group>"; };
+		E7F7C85EAD72083C17980B10 /* qwen25_monolithic_lut4.mlmodelc */ = {isa = PBXFileReference; path = qwen25_monolithic_lut4.mlmodelc; sourceTree = "<group>"; };
 		F458B4E4E31E53F603148AF7 /* GlassPill.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlassPill.swift; sourceTree = "<group>"; };
 		FAB27468C6643AFFC47F874D /* ProjectView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -63,16 +87,26 @@
 		3D374F3E81617F934E84D355 /* Gideon1 */ = {
 			isa = PBXGroup;
 			children = (
+				93ADA970735486EA8A983C61 /* Assets.xcassets */,
 				8D3F94B0E77EC97D7B3B7023 /* Gideon1App.swift */,
 				0026276E871277C3FCE5115A /* RootView.swift */,
-				E1A1D4E33F9A4D4FA1C20011 /* WaterOrbShaders.metal */,
-				E1A1D4E33F9A4D4FA1C20002 /* Assets.xcassets */,
+				5B669B2EA91017976CB40A21 /* WaterOrbShaders.metal */,
 				9DAEB482011E9918D41A5CAA /* Components */,
 				EC7842D9E1B5F6EBAD1F5361 /* Models */,
 				D7966E1A6787E20668E781D0 /* Theme */,
 				CBD42BC35F640FF55D40D33E /* Views */,
 			);
 			path = Gideon1;
+			sourceTree = "<group>";
+		};
+		715A6E8BDBFB658765B4EDBA /* qwen25-3b-coreml */ = {
+			isa = PBXGroup;
+			children = (
+				E7F7C85EAD72083C17980B10 /* qwen25_monolithic_lut4.mlmodelc */,
+				A04FC94CB7E761BE3B9D5241 /* tokenizer_config.json */,
+				0917FC4F30E5F51BD690B779 /* tokenizer.json */,
+			);
+			path = "qwen25-3b-coreml";
 			sourceTree = "<group>";
 		};
 		9DAEB482011E9918D41A5CAA /* Components */ = {
@@ -84,6 +118,7 @@
 				02E4C4CBAC50649F7CC66A2D /* GlassCard.swift */,
 				F458B4E4E31E53F603148AF7 /* GlassPill.swift */,
 				CBFFE94C8192315FF97C584B /* OrbView.swift */,
+				D7F690ABFF4E5C698D872B89 /* SafariSheetView.swift */,
 				26871B360845F7707B09BB52 /* SectionRowHeader.swift */,
 				5A125BD1FA520BB8DF6A2B08 /* TabBar.swift */,
 			);
@@ -121,7 +156,16 @@
 		EC7842D9E1B5F6EBAD1F5361 /* Models */ = {
 			isa = PBXGroup;
 			children = (
+				285420EF9261E9ABD36EDFC0 /* ChatSessionStore.swift */,
+				7B67CF26DEA2E7AACE08B33B /* GideonAgentHarness.swift */,
+				BF1D25D46A6316C4D1646591 /* GideonModelSelectionStore.swift */,
+				BAE371E36CFBA9D23025B93B /* LocalModelRegistry.swift */,
+				2FE319335FD67A697751E103 /* LocalQwenRuntime.swift */,
+				9E8285D216FC315F0A8EED38 /* ProviderConnectionStore.swift */,
+				A36AD7E10E3FA7F3FE89AB19 /* RemoteGideonRuntime.swift */,
+				05D05470E994BA80551551EF /* SecureKeyStore.swift */,
 				798636E5632034927B248117 /* Tab.swift */,
+				715A6E8BDBFB658765B4EDBA /* qwen25-3b-coreml */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -134,7 +178,7 @@
 			buildConfigurationList = E6D91897DDB4084935C727F2 /* Build configuration list for PBXNativeTarget "Gideon1" */;
 			buildPhases = (
 				35B9A6BBB6674AEE2ADCEF07 /* Sources */,
-				E1A1D4E33F9A4D4FA1C20003 /* Resources */,
+				A1D5DBF33AE885D9C713425E /* Resources */,
 			);
 			buildRules = (
 			);
@@ -157,7 +201,7 @@
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
 					CB4C9B90EE37D9E1F03FC837 = {
-						DevelopmentTeam = "";
+						DevelopmentTeam = 84U223KLAD;
 						ProvisioningStyle = Automatic;
 					};
 				};
@@ -182,11 +226,14 @@
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		E1A1D4E33F9A4D4FA1C20003 /* Resources */ = {
+		A1D5DBF33AE885D9C713425E /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				E1A1D4E33F9A4D4FA1C20001 /* Assets.xcassets in Resources */,
+				E54FA15122E17EE67A8A0332 /* Assets.xcassets in Resources */,
+				F05EB27F3CE0D26E18C32266 /* qwen25_monolithic_lut4.mlmodelc in Resources */,
+				D8C80E390916CE651524D520 /* tokenizer.json in Resources */,
+				1F9DAF7D99D514EC0E5E6E69 /* tokenizer_config.json in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -201,20 +248,29 @@
 				923692A225192425A5004137 /* AgentView.swift in Sources */,
 				F14319C54B858060C62D6BCF /* AppTheme.swift in Sources */,
 				AEB290BC34498A6AE246CFFE /* BotMark.swift in Sources */,
+				4208F38CA299DDC20E3436B7 /* ChatSessionStore.swift in Sources */,
 				43EF7ED09044CF10F19E24CF /* CollapseChevron.swift in Sources */,
 				08ADE29D07514CAA212D5C9A /* Eyebrow.swift in Sources */,
 				BBCA746F1F8404A60C848689 /* Gideon1App.swift in Sources */,
+				0624ED8E16D6D97571D4D13B /* GideonAgentHarness.swift in Sources */,
+				22627A8688722843F5D29471 /* GideonModelSelectionStore.swift in Sources */,
 				9117D798667BFA61387B517E /* GlassCard.swift in Sources */,
 				F455578A71B5CABCE2C12AEF /* GlassPill.swift in Sources */,
 				BADDB794F300574A1A36690B /* HealthView.swift in Sources */,
+				4C8C2C387DEF84CB1B96FA49 /* LocalModelRegistry.swift in Sources */,
+				16A34609ACB10716E8408BF4 /* LocalQwenRuntime.swift in Sources */,
 				74B69411C18F2A5CDFD7FDDF /* MessagesView.swift in Sources */,
 				7DD0F6E980C3D4A954BA1CD4 /* OrbView.swift in Sources */,
 				A9DAB7BE8F16D6B38168A335 /* ProjectView.swift in Sources */,
+				704DB39F3DEFDAC402A0889E /* ProviderConnectionStore.swift in Sources */,
+				43DC6D688BD811DB426BBA04 /* RemoteGideonRuntime.swift in Sources */,
 				ED7131E6864BA763E9EEC384 /* RootView.swift in Sources */,
+				5C706D6EEF370A51AD5297D7 /* SafariSheetView.swift in Sources */,
 				60410A8FCE64C7B9A56C50C3 /* SectionRowHeader.swift in Sources */,
+				D242AF3E32905FBAE1D6931B /* SecureKeyStore.swift in Sources */,
 				3149FE406B5E8388281E546D /* Tab.swift in Sources */,
 				1BD9441ACEAB3A5236059086 /* TabBar.swift in Sources */,
-				E1A1D4E33F9A4D4FA1C20010 /* WaterOrbShaders.metal in Sources */,
+				9D52DEA8C936CBC90D8D45FF /* WaterOrbShaders.metal in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -257,7 +313,7 @@
 				COPY_PHASE_STRIP = NO;
 				CURRENT_PROJECT_VERSION = 1;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = 84U223KLAD;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
@@ -315,7 +371,7 @@
 				COPY_PHASE_STRIP = NO;
 				CURRENT_PROJECT_VERSION = 1;
 				DEBUG_INFORMATION_FORMAT = dwarf;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = 84U223KLAD;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;

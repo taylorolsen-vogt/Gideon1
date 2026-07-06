@@ -3,7 +3,7 @@ options:
   bundleIdPrefix: com.taylorolsenvogt
 settings:
   base:
-    DEVELOPMENT_TEAM: ""
+    DEVELOPMENT_TEAM: "84U223KLAD"
     SWIFT_VERSION: 6.0
     CURRENT_PROJECT_VERSION: 1
     MARKETING_VERSION: 1.0

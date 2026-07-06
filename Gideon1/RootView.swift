@@ -2,6 +2,7 @@ import SwiftUI
 
 struct RootView: View {
     @State private var selection: AppTab = .agent
+    @StateObject private var messagesStore = MessagesSessionStore()
 
     var body: some View {
         ZStack {
@@ -9,18 +10,33 @@ struct RootView: View {
 
             // Orb floats behind every page, centered.
             OrbView(size: 398)
-                .opacity(0.95)
-                .offset(y: 0)
+                .opacity(0.90)
+                .offset(y: 22)
+                .mask(
+                    LinearGradient(
+                        stops: [
+                            .init(color: .clear, location: 0.00),
+                            .init(color: .white.opacity(0.28), location: 0.26),
+                            .init(color: .white.opacity(0.78), location: 0.46),
+                            .init(color: .white, location: 0.62),
+                            .init(color: .white, location: 0.86),
+                            .init(color: .white.opacity(0.30), location: 0.95),
+                            .init(color: .clear, location: 1.00)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
                 .allowsHitTesting(false)
 
             // Page content.
             Group {
                 switch selection {
                 case .agent:    AgentView()
-                case .messages: MessagesView()
+                case .messages: MessagesView(store: messagesStore)
                 case .activity: ActivityView()
                 case .projects: ProjectView()
-                case .health:   HealthView()
+                case .connections: ConnectionsView()
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)

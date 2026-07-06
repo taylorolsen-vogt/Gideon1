@@ -1,0 +1,13 @@
+# Xcode user-specific files
+**/xcuserdata/
+**/*.xcuserstate
+
+# Xcode build artifacts
+DerivedData/
+
+# macOS Finder
+.DS_Store
+
+# Large local model artifacts (keep local, do not commit)
+Gideon1/Models/qwen25-3b-coreml/qwen25_monolithic_lut4.mlmodelc/weights/weight.bin
+Gideon1/Models/qwen25-3b-coreml/qwen25_monolithic_lut4.mlmodelc/coremldata.bin

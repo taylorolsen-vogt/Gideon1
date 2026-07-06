@@ -5,7 +5,7 @@ enum AppTab: String, CaseIterable, Identifiable {
     case messages
     case activity
     case projects
-    case health
+    case connections
 
     var id: String { rawValue }
 }

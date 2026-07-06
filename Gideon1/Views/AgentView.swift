@@ -2,6 +2,26 @@ import SwiftUI
 
 struct AgentView: View {
     @State private var showingGideonProfile = false
+    @State private var showingAddAgentSheet = false
+    @State private var showingAddGroupSheet = false
+    @State private var subagents: [SubagentEntry] = []
+    @State private var groups: [AgentGroupEntry] = []
+    @State private var newAgentName = ""
+    @State private var newAgentDomain = ""
+    @State private var newAgentAPIKey = ""
+    @State private var newGroupName = ""
+    @State private var newGroupPurpose = ""
+    @State private var newGroupAgents = ""
+    @State private var showingEditGroupSheet = false
+    @State private var editingGroupID: UUID?
+    @State private var editGroupName = ""
+    @State private var editGroupPurpose = ""
+    @State private var editGroupAgents = ""
+    @State private var groupActionStatus = ""
+    @EnvironmentObject private var modelSelection: GideonModelSelectionStore
+
+    private static let subagentsStorageKey = "gideon.subagents.v1"
+    private static let groupsStorageKey = "gideon.agentGroups.v1"
 
     var body: some View {
         Group {
@@ -11,6 +31,7 @@ struct AgentView: View {
                         showingGideonProfile = false
                     }
                 }
+                .environmentObject(modelSelection)
             } else {
                 agentList
             }
@@ -24,9 +45,23 @@ struct AgentView: View {
             HStack {
                 Eyebrow(text: "Agents", size: 12)
                 Spacer()
-                Image(systemName: "plus")
-                    .font(.system(size: 18, weight: .regular))
-                    .foregroundStyle(AppTheme.textPrimary)
+                Button {
+                    showingAddAgentSheet = true
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 18, weight: .regular))
+                        .foregroundStyle(AppTheme.textPrimary)
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    showingAddGroupSheet = true
+                } label: {
+                    Image(systemName: "square.3.layers.3d")
+                        .font(.system(size: 17, weight: .regular))
+                        .foregroundStyle(AppTheme.textPrimary)
+                }
+                .buttonStyle(.plain)
             }
             .padding(.horizontal, 22)
             .padding(.top, 10)
@@ -49,10 +84,122 @@ struct AgentView: View {
                 .padding(.horizontal, 22)
                 .padding(.top, 10)
 
+            // GROUPS section.
+            SectionRowHeader(title: "Groups")
+                .padding(.horizontal, 22)
+                .padding(.top, 22)
+
+            groupsCard
+                .padding(.horizontal, 22)
+                .padding(.top, 10)
+
             Spacer()
         }
         .padding(.top, 18)
         .padding(.bottom, 90)
+        .onAppear {
+            loadSubagents()
+            loadGroups()
+        }
+        .sheet(isPresented: $showingAddAgentSheet) {
+            NavigationStack {
+                Form {
+                    Section("Agent") {
+                        TextField("Name (e.g. Druck)", text: $newAgentName)
+                        TextField("Domain (e.g. Finance)", text: $newAgentDomain)
+                    }
+
+                    Section("Credentials") {
+                        SecureField("API key", text: $newAgentAPIKey)
+                        Text("API keys should be moved to Keychain-backed storage in the next pass.")
+                            .font(.system(size: 12))
+                            .foregroundStyle(AppTheme.textSecondary)
+                    }
+                }
+                .navigationTitle("Add Agent")
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") {
+                            resetAddAgentForm()
+                            showingAddAgentSheet = false
+                        }
+                    }
+
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Save") {
+                            saveSubagent()
+                        }
+                        .disabled(newAgentName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || newAgentAPIKey.isEmpty)
+                    }
+                }
+            }
+            .presentationDetents([.medium])
+        }
+        .sheet(isPresented: $showingAddGroupSheet) {
+            NavigationStack {
+                Form {
+                    Section("Group") {
+                        TextField("Group name (e.g. Product Launch)", text: $newGroupName)
+                        TextField("Purpose", text: $newGroupPurpose)
+                    }
+
+                    Section("Agents") {
+                        TextField("Agent names (comma separated)", text: $newGroupAgents)
+                        Text("UI-only for now: deployment wiring comes next.")
+                            .font(.system(size: 12))
+                            .foregroundStyle(AppTheme.textSecondary)
+                    }
+                }
+                .navigationTitle("Create Group")
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") {
+                            resetAddGroupForm()
+                            showingAddGroupSheet = false
+                        }
+                    }
+
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Save") {
+                            saveGroup()
+                        }
+                        .disabled(newGroupName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+                }
+            }
+            .presentationDetents([.medium])
+        }
+        .sheet(isPresented: $showingEditGroupSheet) {
+            NavigationStack {
+                Form {
+                    Section("Group") {
+                        TextField("Group name", text: $editGroupName)
+                        TextField("Purpose", text: $editGroupPurpose)
+                    }
+
+                    Section("Agents") {
+                        TextField("Agent names (comma separated)", text: $editGroupAgents)
+                    }
+                }
+                .navigationTitle("Edit Group")
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") {
+                            resetEditGroupForm()
+                            showingEditGroupSheet = false
+                        }
+                    }
+
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Save") {
+                            saveGroupEdits()
+                        }
+                        .disabled(editGroupName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+                }
+            }
+            .presentationDetents([.medium])
+        }
     }
 
     private var primaryCard: some View {
@@ -68,14 +215,14 @@ struct AgentView: View {
                         Text("Gideon")
                             .font(.system(size: 17, weight: .semibold))
                             .foregroundStyle(AppTheme.textPrimary)
-                        Text("Autonomous agent ⓘ Qwen2.5-3B-Instruct (in-app core)")
+                        Text("Autonomous agent ⓘ \(modelSelection.selectedOption.title) (\(modelSelection.selectedOption.subtitle))")
                             .font(.system(size: 12.5))
                             .foregroundStyle(AppTheme.textSecondary)
                             .lineLimit(2)
                     }
                     Spacer(minLength: 6)
                     Circle()
-                        .fill(AppTheme.statusGreen)
+                        .fill(modelSelection.selectedOption.isAvailable ? AppTheme.statusGreen : AppTheme.statusOrange)
                         .frame(width: 8, height: 8)
                     Image(systemName: "chevron.right")
                         .font(.system(size: 13, weight: .semibold))
@@ -88,34 +235,315 @@ struct AgentView: View {
 
     private var subagentsCard: some View {
         GlassCard(corner: 22, padding: 14) {
-            HStack(spacing: 14) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(AppTheme.textPrimary.opacity(0.06))
-                        .frame(width: 44, height: 44)
-                    Image(systemName: "minus.circle")
-                        .font(.system(size: 18, weight: .regular))
-                        .foregroundStyle(AppTheme.textSecondary)
+            if subagents.isEmpty {
+                HStack(spacing: 14) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .fill(AppTheme.textPrimary.opacity(0.06))
+                            .frame(width: 44, height: 44)
+                        Image(systemName: "minus.circle")
+                            .font(.system(size: 18, weight: .regular))
+                            .foregroundStyle(AppTheme.textSecondary)
+                    }
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("No subagents yet")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(AppTheme.textPrimary)
+                        Text("Use + to add existing agents like Druck")
+                            .font(.system(size: 12.5))
+                            .foregroundStyle(AppTheme.textSecondary)
+                    }
+                    Spacer(minLength: 6)
+                    Circle()
+                        .fill(AppTheme.textTertiary)
+                        .frame(width: 7, height: 7)
                 }
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("No subagents yet")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(AppTheme.textPrimary)
-                    Text("Add subagents when you are ready")
-                        .font(.system(size: 12.5))
-                        .foregroundStyle(AppTheme.textSecondary)
+            } else {
+                VStack(spacing: 10) {
+                    ForEach(subagents) { agent in
+                        HStack(spacing: 12) {
+                            ZStack {
+                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    .fill(AppTheme.textPrimary.opacity(0.06))
+                                    .frame(width: 36, height: 36)
+                                Image(systemName: "person.crop.square")
+                                    .font(.system(size: 15, weight: .regular))
+                                    .foregroundStyle(AppTheme.textSecondary)
+                            }
+
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(agent.name)
+                                    .font(.system(size: 14.5, weight: .semibold))
+                                    .foregroundStyle(AppTheme.textPrimary)
+                                Text(agent.domain)
+                                    .font(.system(size: 12, weight: .regular))
+                                    .foregroundStyle(AppTheme.textSecondary)
+                            }
+
+                            Spacer(minLength: 6)
+
+                            Text("Connected")
+                                .font(.system(size: 10.5, weight: .semibold))
+                                .foregroundStyle(AppTheme.statusGreen)
+                        }
+                        .padding(.horizontal, 2)
+                    }
                 }
-                Spacer(minLength: 6)
-                Circle()
-                    .fill(AppTheme.textTertiary)
-                    .frame(width: 7, height: 7)
             }
         }
     }
+
+    private var groupsCard: some View {
+        GlassCard(corner: 22, padding: 14) {
+            if groups.isEmpty {
+                HStack(spacing: 14) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .fill(AppTheme.textPrimary.opacity(0.06))
+                            .frame(width: 44, height: 44)
+                        Image(systemName: "square.3.layers.3d")
+                            .font(.system(size: 18, weight: .regular))
+                            .foregroundStyle(AppTheme.textSecondary)
+                    }
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("No groups yet")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(AppTheme.textPrimary)
+                        Text("Tap the groups button to create deployable agent groups")
+                            .font(.system(size: 12.5))
+                            .foregroundStyle(AppTheme.textSecondary)
+                    }
+                    Spacer(minLength: 6)
+                }
+            } else {
+                VStack(spacing: 10) {
+                    ForEach(groups) { group in
+                        HStack(spacing: 12) {
+                            ZStack {
+                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    .fill(AppTheme.textPrimary.opacity(0.06))
+                                    .frame(width: 36, height: 36)
+                                Image(systemName: "square.3.layers.3d")
+                                    .font(.system(size: 15, weight: .regular))
+                                    .foregroundStyle(AppTheme.textSecondary)
+                            }
+
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(group.name)
+                                    .font(.system(size: 14.5, weight: .semibold))
+                                    .foregroundStyle(AppTheme.textPrimary)
+                                Text(group.purpose)
+                                    .font(.system(size: 12, weight: .regular))
+                                    .foregroundStyle(AppTheme.textSecondary)
+                                    .lineLimit(1)
+                                if !group.agents.isEmpty {
+                                    Text(group.agents.joined(separator: ", "))
+                                        .font(.system(size: 11, weight: .regular))
+                                        .foregroundStyle(AppTheme.textTertiary)
+                                        .lineLimit(1)
+                                }
+                            }
+
+                            Spacer(minLength: 6)
+
+                            VStack(alignment: .trailing, spacing: 6) {
+                                Button {
+                                    triggerDeployStub(for: group)
+                                } label: {
+                                    Text("Deploy")
+                                        .font(.system(size: 10.5, weight: .semibold))
+                                        .foregroundStyle(AppTheme.statusOrange)
+                                }
+                                .buttonStyle(.plain)
+
+                                Menu {
+                                    Button("Edit") {
+                                        beginEdit(group)
+                                    }
+                                    Button("Delete", role: .destructive) {
+                                        deleteGroup(group.id)
+                                    }
+                                } label: {
+                                    Image(systemName: "ellipsis.circle")
+                                        .font(.system(size: 15, weight: .regular))
+                                        .foregroundStyle(AppTheme.textTertiary)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(.horizontal, 2)
+                    }
+
+                    if !groupActionStatus.isEmpty {
+                        Text(groupActionStatus)
+                            .font(.system(size: 11.5, weight: .medium))
+                            .foregroundStyle(AppTheme.textSecondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 4)
+                    }
+                }
+            }
+        }
+    }
+
+    private func saveSubagent() {
+        let trimmedName = newAgentName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty, !newAgentAPIKey.isEmpty else { return }
+
+        let domainText = newAgentDomain.trimmingCharacters(in: .whitespacesAndNewlines)
+        let entry = SubagentEntry(
+            id: UUID(),
+            name: trimmedName,
+            domain: domainText.isEmpty ? "General" : domainText,
+            createdAt: Date()
+        )
+
+        subagents.append(entry)
+        persistSubagents()
+        resetAddAgentForm()
+        showingAddAgentSheet = false
+    }
+
+    private func loadSubagents() {
+        guard let data = UserDefaults.standard.data(forKey: Self.subagentsStorageKey),
+              let decoded = try? JSONDecoder().decode([SubagentEntry].self, from: data) else {
+            return
+        }
+        subagents = decoded
+    }
+
+    private func loadGroups() {
+        guard let data = UserDefaults.standard.data(forKey: Self.groupsStorageKey),
+              let decoded = try? JSONDecoder().decode([AgentGroupEntry].self, from: data) else {
+            return
+        }
+        groups = decoded
+    }
+
+    private func persistSubagents() {
+        if let data = try? JSONEncoder().encode(subagents) {
+            UserDefaults.standard.set(data, forKey: Self.subagentsStorageKey)
+        }
+    }
+
+    private func persistGroups() {
+        if let data = try? JSONEncoder().encode(groups) {
+            UserDefaults.standard.set(data, forKey: Self.groupsStorageKey)
+        }
+    }
+
+    private func resetAddAgentForm() {
+        newAgentName = ""
+        newAgentDomain = ""
+        newAgentAPIKey = ""
+    }
+
+    private func saveGroup() {
+        let trimmedName = newGroupName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else { return }
+
+        let purpose = newGroupPurpose.trimmingCharacters(in: .whitespacesAndNewlines)
+        let parsedAgents = newGroupAgents
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        let entry = AgentGroupEntry(
+            id: UUID(),
+            name: trimmedName,
+            purpose: purpose.isEmpty ? "General deployment group" : purpose,
+            agents: parsedAgents,
+            createdAt: Date()
+        )
+
+        groups.append(entry)
+        persistGroups()
+        resetAddGroupForm()
+        showingAddGroupSheet = false
+    }
+
+    private func resetAddGroupForm() {
+        newGroupName = ""
+        newGroupPurpose = ""
+        newGroupAgents = ""
+    }
+
+    private func beginEdit(_ group: AgentGroupEntry) {
+        editingGroupID = group.id
+        editGroupName = group.name
+        editGroupPurpose = group.purpose
+        editGroupAgents = group.agents.joined(separator: ", ")
+        showingEditGroupSheet = true
+    }
+
+    private func saveGroupEdits() {
+        guard let editingGroupID,
+              let index = groups.firstIndex(where: { $0.id == editingGroupID }) else {
+            return
+        }
+
+        let trimmedName = editGroupName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else { return }
+
+        let purpose = editGroupPurpose.trimmingCharacters(in: .whitespacesAndNewlines)
+        let parsedAgents = editGroupAgents
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        groups[index] = AgentGroupEntry(
+            id: groups[index].id,
+            name: trimmedName,
+            purpose: purpose.isEmpty ? "General deployment group" : purpose,
+            agents: parsedAgents,
+            createdAt: groups[index].createdAt
+        )
+
+        persistGroups()
+        groupActionStatus = "Group updated"
+        resetEditGroupForm()
+        showingEditGroupSheet = false
+    }
+
+    private func deleteGroup(_ id: UUID) {
+        groups.removeAll { $0.id == id }
+        persistGroups()
+        groupActionStatus = "Group deleted"
+    }
+
+    private func triggerDeployStub(for group: AgentGroupEntry) {
+        groupActionStatus = "Deploy queued for \(group.name) (stub only)"
+    }
+
+    private func resetEditGroupForm() {
+        editingGroupID = nil
+        editGroupName = ""
+        editGroupPurpose = ""
+        editGroupAgents = ""
+    }
+}
+
+private struct SubagentEntry: Identifiable, Codable {
+    let id: UUID
+    let name: String
+    let domain: String
+    let createdAt: Date
+}
+
+private struct AgentGroupEntry: Identifiable, Codable {
+    let id: UUID
+    let name: String
+    let purpose: String
+    let agents: [String]
+    let createdAt: Date
 }
 
 private struct GideonProfileView: View {
     let onBack: () -> Void
+    @EnvironmentObject private var modelSelection: GideonModelSelectionStore
+    @StateObject private var connectionStore = ProviderConnectionStore.shared
+    private static let subagentsStorageKey = "gideon.subagents.v1"
+    private static let groupsStorageKey = "gideon.agentGroups.v1"
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -133,10 +561,6 @@ private struct GideonProfileView: View {
                     .buttonStyle(.plain)
 
                     Spacer()
-
-                    Circle()
-                        .fill(AppTheme.statusGreen)
-                        .frame(width: 6, height: 6)
                 }
                 .padding(.horizontal, 22)
                 .padding(.top, 10)
@@ -145,29 +569,26 @@ private struct GideonProfileView: View {
                     .padding(.horizontal, 22)
                     .padding(.top, 24)
 
-                Text("Gideon")
-                    .font(.system(size: 20, weight: .semibold))
-                    .tracking(3.2)
-                    .textCase(.uppercase)
-                    .foregroundStyle(AppTheme.textPrimary)
-                    .padding(.horizontal, 22)
-                    .padding(.top, 10)
+                HStack(spacing: 8) {
+                    Text("Gideon")
+                        .font(.system(size: 20, weight: .semibold))
+                        .tracking(3.2)
+                        .textCase(.uppercase)
+                        .foregroundStyle(AppTheme.textPrimary)
 
-                Text("Qwen2.5-3B-Instruct - in-app Core ML")
+                    Circle()
+                        .fill(modelSelection.selectedOption.isAvailable ? AppTheme.statusGreen : AppTheme.textTertiary)
+                        .frame(width: 7, height: 7)
+                        .padding(.top, 2)
+
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 22)
+                .padding(.top, 10)
+
+                Text("\(modelSelection.selectedOption.title) - \(modelSelection.selectedOption.subtitle)")
                     .font(.system(size: 10, weight: .regular))
                     .foregroundStyle(AppTheme.textSecondary)
-                    .padding(.horizontal, 22)
-                    .padding(.top, 22)
-
-                Text("Currently active")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(AppTheme.textPrimary.opacity(0.56))
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 13)
-                    .background(
-                        RoundedRectangle(cornerRadius: 22, style: .continuous)
-                            .fill(AppTheme.textMuted.opacity(0.18))
-                    )
                     .padding(.horizontal, 22)
                     .padding(.top, 22)
 
@@ -175,13 +596,7 @@ private struct GideonProfileView: View {
                     .padding(.top, 16)
                 profileSection(title: "Skills", value: "No skills connected yet")
                     .padding(.top, 14)
-                profileSection(title: "Models", value: "Qwen2.5-3B-Instruct", detail: "(Qwen2.5-3B-Instruct)", status: "Active", showsAdd: true)
-                    .padding(.top, 14)
-                profileSection(title: "Accounts", value: "No accounts connected yet", showsAdd: true)
-                    .padding(.top, 14)
-                profileSection(title: "Sites", value: "No sites connected yet", showsAdd: true)
-                    .padding(.top, 14)
-                profileSection(title: "Plugins", value: "No plugins connected yet", showsAdd: true, disabled: true)
+                agentHealthSection
                     .padding(.top, 14)
 
                 Color.clear.frame(height: 120)
@@ -232,13 +647,156 @@ private struct GideonProfileView: View {
                     if let status {
                         Text(status)
                             .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(Color(red: 0.04, green: 0.58, blue: 0.25))
+                            .foregroundStyle(status == "Active" ? Color(red: 0.04, green: 0.58, blue: 0.25) : AppTheme.statusOrange)
                     }
                 }
             }
         }
         .padding(.horizontal, 22)
     }
+
+    // MARK: - Agent Health
+
+    private var subagentCount: Int {
+        guard let data = UserDefaults.standard.data(forKey: Self.subagentsStorageKey),
+              let decoded = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return 0 }
+        return decoded.count
+    }
+
+    private var groupCount: Int {
+        guard let data = UserDefaults.standard.data(forKey: Self.groupsStorageKey),
+              let decoded = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return 0 }
+        return decoded.count
+    }
+
+    private var apiModelCount: Int { modelSelection.apiModels.count }
+
+    private var localAvailable: Bool {
+        modelSelection.options.contains(where: { $0.id == "local-qwen" && $0.isAvailable })
+    }
+
+    private var healthScore: Int {
+        var score = 12
+        if localAvailable { score += 20 }
+        score += min(apiModelCount * 8, 24)
+        score += min(subagentCount * 6, 18)
+        score += min(groupCount * 4, 12)
+        score += min(connectionStore.connectedCount * 5, 15)
+        score -= min(connectionStore.manualStepCount * 4, 12)
+        return min(score, 100)
+    }
+
+    private var scoreFraction: CGFloat { CGFloat(healthScore) / 100 }
+
+    private var scoreTone: Color {
+        if healthScore >= 70 { return AppTheme.statusGreen }
+        if healthScore >= 40 { return AppTheme.statusOrange }
+        return Color(red: 0.78, green: 0.24, blue: 0.21)
+    }
+
+    private var agentHealthSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Eyebrow(text: "Operating Efficiency", size: 11)
+                    Spacer()
+                    Text("\(healthScore)%")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(scoreTone)
+                }
+                GeometryReader { proxy in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(AppTheme.textMuted.opacity(0.4)).frame(height: 3)
+                        Capsule().fill(scoreTone).frame(width: proxy.size.width * scoreFraction, height: 3)
+                    }
+                }
+                .frame(height: 3)
+                Text("Real-time profile: no task execution wiring yet, no memory graph, and limited skill/tool integration.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(AppTheme.textSecondary)
+            }
+            .padding(.horizontal, 22)
+
+            GlassCard(corner: 22, padding: 4) {
+                VStack(spacing: 0) {
+                    healthStatRow("Route availability", localAvailable ? "Local online" : "Local unavailable")
+                    healthDivider
+                    healthStatRow("API models", "\(apiModelCount) configured")
+                    healthDivider
+                    healthStatRow("Connected providers", "\(connectionStore.connectedCount)")
+                    healthDivider
+                    healthStatRow("Subagents", "\(subagentCount)")
+                    healthDivider
+                    healthStatRow("Agent groups", "\(groupCount)")
+                    healthDivider
+                    healthStatRow("Tasks completed", "0 tracked")
+                }
+            }
+            .padding(.horizontal, 22)
+
+            GlassCard(corner: 22, padding: 16) {
+                VStack(alignment: .leading, spacing: 0) {
+                    Eyebrow(text: "Capabilities", size: 11).padding(.bottom, 12)
+                    healthCapRow("Local runtime route", status: localAvailable ? "Active" : "Missing", green: localAvailable)
+                    healthDivider
+                    healthCapRow("API model routing", status: apiModelCount > 0 ? "Configured" : "Not configured", green: apiModelCount > 0)
+                    healthDivider
+                    healthCapRow("Provider connections", status: connectionStore.connectedCount > 0 ? "\(connectionStore.connectedCount) connected" : "None", green: connectionStore.connectedCount > 0)
+                    healthDivider
+                    healthCapRow("Subagent registry", status: subagentCount > 0 ? "\(subagentCount) loaded" : "None", green: subagentCount > 0)
+                    healthDivider
+                    healthCapRow("Task queue integration", status: "Not wired", green: false)
+                    healthDivider
+                    healthCapRow("Memory graph", status: "Not wired", green: false)
+                }
+            }
+            .padding(.horizontal, 22)
+
+            GlassCard(corner: 22, padding: 16) {
+                VStack(alignment: .leading, spacing: 0) {
+                    Eyebrow(text: "Last Audit ⓘ Live", size: 11).padding(.bottom, 12)
+                    healthCapRow("Identity integrity", status: "Pass", green: true)
+                    healthDivider
+                    healthCapRow("Route labeling", status: "Pass", green: true)
+                    healthDivider
+                    healthCapRow("Task execution depth", status: "Low", green: false)
+                    healthDivider
+                    healthCapRow("Autonomy readiness", status: healthScore >= 55 ? "Moderate" : "Low", green: healthScore >= 55)
+                }
+            }
+            .padding(.horizontal, 22)
+        }
+    }
+
+    private func healthStatRow(_ leading: String, _ trailing: String) -> some View {
+        HStack {
+            Text(leading).font(.system(size: 14)).foregroundStyle(AppTheme.textPrimary)
+            Spacer()
+            Text(trailing).font(.system(size: 14)).foregroundStyle(AppTheme.textPrimary)
+        }
+        .padding(.vertical, 12)
+        .padding(.horizontal, 14)
+    }
+
+    private func healthCapRow(_ leading: String, status: String, green: Bool) -> some View {
+        HStack {
+            Text(leading).font(.system(size: 14)).foregroundStyle(AppTheme.textPrimary)
+            Spacer()
+            Text(status)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(green ? AppTheme.statusGreen : AppTheme.statusOrange)
+        }
+        .padding(.vertical, 10)
+    }
+
+    private var healthDivider: some View {
+        Rectangle().fill(AppTheme.divider).frame(height: 1)
+    }
+}
+
+struct PortalSheetItem: Identifiable {
+    let id = UUID()
+    let url: URL
 }
 
 #Preview { RootView() }

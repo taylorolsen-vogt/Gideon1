@@ -22,28 +22,28 @@ using namespace metal;
     float interior = 1.0 - smoothstep(0.84, 1.0, r);
     float2 dir = (dist > 0.0001) ? delta / dist : float2(0.0, 0.0);
 
-        float2 tangent = float2(-dir.y, dir.x);
-        float angle = atan2(dir.y, dir.x);
-        float core = (1.0 - r);
+    float2 tangent = float2(-dir.y, dir.x);
+    float angle = atan2(dir.y, dir.x);
+    float core = (1.0 - r);
 
-        // Directional pressure gives push/pull pockets without uniform breathing.
-        float pressure = (sin(angle * 2.0 + time * 0.82 + r * 3.2)
-                                        + cos(angle * 3.0 - time * 0.66 - r * 2.4)) * 0.5;
-        float2 radialFlow = dir * pressure * core * 0.55;
+    // Directional pressure gives push/pull pockets without uniform breathing.
+    float pressure = (sin(angle * 2.0 + time * 0.82 + r * 3.2)
+                    + cos(angle * 3.0 - time * 0.66 - r * 2.4)) * 0.5;
+    float2 radialFlow = dir * pressure * core * 0.40;
 
-        // Clear coherent spin: tangential flow with slow modulation.
-        float spinSpeed = 0.95 + 0.22 * sin(time * 0.24);
-        float2 spinFlow = tangent * spinSpeed * core * 0.92;
+    // Clear coherent spin: tangential flow with slow modulation.
+    float spinSpeed = 0.85 + 0.16 * sin(time * 0.20);
+    float2 spinFlow = tangent * spinSpeed * core * 0.98;
 
-        // Rise/fall with phase shift across the body.
-        float verticalPhase = sin(delta.x * 0.022 + time * 0.88)
-                                                * cos(delta.y * 0.018 - time * 0.52);
-        float2 verticalBias = float2(0.0, -1.0) * verticalPhase * core * 0.50;
+    // Rise/fall with phase shift across the body.
+    float verticalPhase = sin(delta.x * 0.022 + time * 0.88)
+                        * cos(delta.y * 0.018 - time * 0.52);
+    float2 verticalBias = float2(0.0, -1.0) * verticalPhase * core * 0.38;
 
-        // Multi-octave turbulence (dimensionless field).
-        float2 p1 = delta * 0.020 + float2(time * 0.26, time * 0.18);
-        float2 p2 = delta * 0.038 - float2(time * 0.17, time * 0.29);
-        float2 p3 = delta * 0.064 + float2(-time * 0.11, time * 0.13);
+    // Multi-octave turbulence (dimensionless field).
+    float2 p1 = delta * 0.020 + float2(time * 0.26, time * 0.18);
+    float2 p2 = delta * 0.038 - float2(time * 0.17, time * 0.29);
+    float2 p3 = delta * 0.064 + float2(-time * 0.11, time * 0.13);
 
         float2 warp = float2(
                 sin(p1.x + cos(p1.y * 1.2)) * 0.52
@@ -56,10 +56,10 @@ using namespace metal;
 
         // Local curl adds shearing pockets.
         float curl = sin(time * 0.42 + angle * 1.6 + r * 4.2);
-        float2 curlFlow = tangent * curl * core * 0.35;
+        float2 curlFlow = tangent * curl * core * 0.26;
 
         // Keep offsets bounded: all flow fields are unit-ish, scaled once by strength.
-        float2 flow = radialFlow + spinFlow + verticalBias + warp * 0.72 + curlFlow;
+        float2 flow = radialFlow + spinFlow + verticalBias + warp * 0.55 + curlFlow;
         float2 offset = flow * strength;
 
     offset *= interior;
