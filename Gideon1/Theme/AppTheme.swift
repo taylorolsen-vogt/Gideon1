@@ -1,8 +1,8 @@
 import SwiftUI
 
 enum AppTheme {
-    // Background — light, very slightly cool lavender/off-white.
-    static let background = Color(red: 0.953, green: 0.953, blue: 0.965)
+    // Background — light cool gray, slightly brighter.
+    static let background = Color(red: 0.972, green: 0.972, blue: 0.982)
 
     // Card surface — translucent liquid glass over the app background.
     static let cardFill = Color.white.opacity(0.035)

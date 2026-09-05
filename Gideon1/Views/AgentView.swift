@@ -42,58 +42,54 @@ struct AgentView: View {
     private var agentList: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Eyebrow header.
-            HStack {
-                Eyebrow(text: "Agents", size: 12)
-                Spacer()
-                Button {
-                    showingAddAgentSheet = true
-                } label: {
-                    Image(systemName: "plus")
-                        .font(.system(size: 18, weight: .regular))
-                        .foregroundStyle(AppTheme.textPrimary)
-                }
-                .buttonStyle(.plain)
+            ZStack(alignment: .top) {
+                PageTitle(text: "Agents", size: 30)
+                    .padding(.top, -2)
 
-                Button {
-                    showingAddGroupSheet = true
-                } label: {
-                    Image(systemName: "square.3.layers.3d")
-                        .font(.system(size: 17, weight: .regular))
-                        .foregroundStyle(AppTheme.textPrimary)
+                HStack(alignment: .top) {
+                    HeaderMenuButton()
+                    Spacer()
+                    Button {
+                        showingAddAgentSheet = true
+                    } label: {
+                        Image(systemName: "plus")
+                            .font(.system(size: 18, weight: .regular))
+                            .foregroundStyle(AppTheme.textPrimary)
+                            .padding(.top, 6)
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
             }
             .padding(.horizontal, 22)
-            .padding(.top, 10)
+            .padding(.top, 8)
+            .padding(.bottom, 8)
+            .background(AppTheme.background.opacity(0.96))
 
-            // PRIMARY section.
-            SectionRowHeader(title: "Primary")
-                .padding(.horizontal, 22)
-                .padding(.top, 18)
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 0) {
+                    // PRIMARY section.
+                    SectionRowHeader(title: "Primary")
+                        .padding(.horizontal, 22)
+                        .padding(.top, 10)
 
-            primaryCard
-                .padding(.horizontal, 22)
-                .padding(.top, 10)
+                    primaryCard
+                        .padding(.horizontal, 22)
+                        .padding(.top, 10)
 
-            // SUBAGENTS section.
-            SectionRowHeader(title: "Subagents")
-                .padding(.horizontal, 22)
-                .padding(.top, 22)
+                    // SUBAGENTS section.
+                    SectionRowHeader(title: "Subagents")
+                        .padding(.horizontal, 22)
+                        .padding(.top, 22)
 
-            subagentsCard
-                .padding(.horizontal, 22)
-                .padding(.top, 10)
+                    subagentsCard
+                        .padding(.horizontal, 22)
+                        .padding(.top, 10)
 
-            // GROUPS section.
-            SectionRowHeader(title: "Groups")
-                .padding(.horizontal, 22)
-                .padding(.top, 22)
-
-            groupsCard
-                .padding(.horizontal, 22)
-                .padding(.top, 10)
-
-            Spacer()
+                    Color.clear.frame(height: 96)
+                }
+            }
+            .scrollBounceBehavior(.basedOnSize)
+            .safeAreaPadding(.bottom, 6)
         }
         .padding(.top, 18)
         .padding(.bottom, 90)
@@ -669,7 +665,7 @@ private struct GideonProfileView: View {
         return decoded.count
     }
 
-    private var apiModelCount: Int { modelSelection.apiModels.count }
+    private var apiModelCount: Int { modelSelection.apiProviderCount }
 
     private var localAvailable: Bool {
         modelSelection.options.contains(where: { $0.id == "local-qwen" && $0.isAvailable })
@@ -721,7 +717,7 @@ private struct GideonProfileView: View {
                 VStack(spacing: 0) {
                     healthStatRow("Route availability", localAvailable ? "Local online" : "Local unavailable")
                     healthDivider
-                    healthStatRow("API models", "\(apiModelCount) configured")
+                    healthStatRow("API providers", "\(apiModelCount) configured")
                     healthDivider
                     healthStatRow("Connected providers", "\(connectionStore.connectedCount)")
                     healthDivider

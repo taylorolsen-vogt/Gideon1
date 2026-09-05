@@ -3,10 +3,18 @@ import SwiftUI
 struct GlassCard<Content: View>: View {
     var corner: CGFloat = 22
     var padding: CGFloat = 18
+    var fillWidth: Bool = false
     @ViewBuilder var content: () -> Content
 
     var body: some View {
-        content()
+        Group {
+            if fillWidth {
+                content()
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                content()
+            }
+        }
             .padding(padding)
             .background {
                 let shape = RoundedRectangle(cornerRadius: corner, style: .continuous)

@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A01DDE7C185649F383A90101 /* GideonAgentTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = A01DDE7C185649F383A90102 /* GideonAgentTools.swift */; };
 		0624ED8E16D6D97571D4D13B /* GideonAgentHarness.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B67CF26DEA2E7AACE08B33B /* GideonAgentHarness.swift */; };
 		08ADE29D07514CAA212D5C9A /* Eyebrow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E617E9D710DC33CBF6EB51E /* Eyebrow.swift */; };
 		16A34609ACB10716E8408BF4 /* LocalQwenRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FE319335FD67A697751E103 /* LocalQwenRuntime.swift */; };
@@ -14,13 +15,16 @@
 		1F9DAF7D99D514EC0E5E6E69 /* tokenizer_config.json in Resources */ = {isa = PBXBuildFile; fileRef = A04FC94CB7E761BE3B9D5241 /* tokenizer_config.json */; };
 		22627A8688722843F5D29471 /* GideonModelSelectionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF1D25D46A6316C4D1646591 /* GideonModelSelectionStore.swift */; };
 		3149FE406B5E8388281E546D /* Tab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 798636E5632034927B248117 /* Tab.swift */; };
+		335296629DD9219FD73CC9C4 /* GoogleOAuthService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8910BDBCD7BB8400D83BA19E /* GoogleOAuthService.swift */; };
 		4208F38CA299DDC20E3436B7 /* ChatSessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 285420EF9261E9ABD36EDFC0 /* ChatSessionStore.swift */; };
+		42D30348F25D5ABB52443CBA /* CloudCredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10B0C8AFC7BDAF7920E5D07E /* CloudCredentialStore.swift */; };
 		43DC6D688BD811DB426BBA04 /* RemoteGideonRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = A36AD7E10E3FA7F3FE89AB19 /* RemoteGideonRuntime.swift */; };
 		43EF7ED09044CF10F19E24CF /* CollapseChevron.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1670874F552E424E2FB83053 /* CollapseChevron.swift */; };
 		4C8C2C387DEF84CB1B96FA49 /* LocalModelRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = BAE371E36CFBA9D23025B93B /* LocalModelRegistry.swift */; };
 		5C706D6EEF370A51AD5297D7 /* SafariSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7F690ABFF4E5C698D872B89 /* SafariSheetView.swift */; };
 		60410A8FCE64C7B9A56C50C3 /* SectionRowHeader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26871B360845F7707B09BB52 /* SectionRowHeader.swift */; };
 		698FDB746F15DCCD5D7DC645 /* ActivityView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F91AEAB9A993E941E5C077F /* ActivityView.swift */; };
+		69F07ACEA226814FF699042A /* AccountStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D24C37AD406747DF4711D8E /* AccountStore.swift */; };
 		704DB39F3DEFDAC402A0889E /* ProviderConnectionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E8285D216FC315F0A8EED38 /* ProviderConnectionStore.swift */; };
 		74B69411C18F2A5CDFD7FDDF /* MessagesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2AEBCCB831C2D20CC92215A1 /* MessagesView.swift */; };
 		7DD0F6E980C3D4A954BA1CD4 /* OrbView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBFFE94C8192315FF97C584B /* OrbView.swift */; };
@@ -41,10 +45,12 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		A01DDE7C185649F383A90102 /* GideonAgentTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GideonAgentTools.swift; sourceTree = "<group>"; };
 		0026276E871277C3FCE5115A /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		02E4C4CBAC50649F7CC66A2D /* GlassCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlassCard.swift; sourceTree = "<group>"; };
 		05D05470E994BA80551551EF /* SecureKeyStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecureKeyStore.swift; sourceTree = "<group>"; };
 		0917FC4F30E5F51BD690B779 /* tokenizer.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = tokenizer.json; sourceTree = "<group>"; };
+		10B0C8AFC7BDAF7920E5D07E /* CloudCredentialStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudCredentialStore.swift; sourceTree = "<group>"; };
 		1670874F552E424E2FB83053 /* CollapseChevron.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CollapseChevron.swift; sourceTree = "<group>"; };
 		26871B360845F7707B09BB52 /* SectionRowHeader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SectionRowHeader.swift; sourceTree = "<group>"; };
 		285420EF9261E9ABD36EDFC0 /* ChatSessionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatSessionStore.swift; sourceTree = "<group>"; };
@@ -54,8 +60,10 @@
 		4C127D7B7FADA19172886A0A /* HealthView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthView.swift; sourceTree = "<group>"; };
 		5A125BD1FA520BB8DF6A2B08 /* TabBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabBar.swift; sourceTree = "<group>"; };
 		5B669B2EA91017976CB40A21 /* WaterOrbShaders.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = WaterOrbShaders.metal; sourceTree = "<group>"; };
+		6D24C37AD406747DF4711D8E /* AccountStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountStore.swift; sourceTree = "<group>"; };
 		798636E5632034927B248117 /* Tab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tab.swift; sourceTree = "<group>"; };
 		7B67CF26DEA2E7AACE08B33B /* GideonAgentHarness.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GideonAgentHarness.swift; sourceTree = "<group>"; };
+		8910BDBCD7BB8400D83BA19E /* GoogleOAuthService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoogleOAuthService.swift; sourceTree = "<group>"; };
 		8D3F94B0E77EC97D7B3B7023 /* Gideon1App.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Gideon1App.swift; sourceTree = "<group>"; };
 		93ADA970735486EA8A983C61 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		97666437CFDAAC08CDC9837E /* BotMark.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BotMark.swift; sourceTree = "<group>"; };
@@ -73,6 +81,7 @@
 		E7F7C85EAD72083C17980B10 /* qwen25_monolithic_lut4.mlmodelc */ = {isa = PBXFileReference; path = qwen25_monolithic_lut4.mlmodelc; sourceTree = "<group>"; };
 		F458B4E4E31E53F603148AF7 /* GlassPill.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlassPill.swift; sourceTree = "<group>"; };
 		FAB27468C6643AFFC47F874D /* ProjectView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectView.swift; sourceTree = "<group>"; };
+		FE59B59BC926CECE725CEF93 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -89,6 +98,7 @@
 			children = (
 				93ADA970735486EA8A983C61 /* Assets.xcassets */,
 				8D3F94B0E77EC97D7B3B7023 /* Gideon1App.swift */,
+				FE59B59BC926CECE725CEF93 /* Info.plist */,
 				0026276E871277C3FCE5115A /* RootView.swift */,
 				5B669B2EA91017976CB40A21 /* WaterOrbShaders.metal */,
 				9DAEB482011E9918D41A5CAA /* Components */,
@@ -156,9 +166,13 @@
 		EC7842D9E1B5F6EBAD1F5361 /* Models */ = {
 			isa = PBXGroup;
 			children = (
+				6D24C37AD406747DF4711D8E /* AccountStore.swift */,
 				285420EF9261E9ABD36EDFC0 /* ChatSessionStore.swift */,
+				10B0C8AFC7BDAF7920E5D07E /* CloudCredentialStore.swift */,
 				7B67CF26DEA2E7AACE08B33B /* GideonAgentHarness.swift */,
+				A01DDE7C185649F383A90102 /* GideonAgentTools.swift */,
 				BF1D25D46A6316C4D1646591 /* GideonModelSelectionStore.swift */,
+				8910BDBCD7BB8400D83BA19E /* GoogleOAuthService.swift */,
 				BAE371E36CFBA9D23025B93B /* LocalModelRegistry.swift */,
 				2FE319335FD67A697751E103 /* LocalQwenRuntime.swift */,
 				9E8285D216FC315F0A8EED38 /* ProviderConnectionStore.swift */,
@@ -244,18 +258,22 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				69F07ACEA226814FF699042A /* AccountStore.swift in Sources */,
 				698FDB746F15DCCD5D7DC645 /* ActivityView.swift in Sources */,
 				923692A225192425A5004137 /* AgentView.swift in Sources */,
 				F14319C54B858060C62D6BCF /* AppTheme.swift in Sources */,
 				AEB290BC34498A6AE246CFFE /* BotMark.swift in Sources */,
 				4208F38CA299DDC20E3436B7 /* ChatSessionStore.swift in Sources */,
+				42D30348F25D5ABB52443CBA /* CloudCredentialStore.swift in Sources */,
 				43EF7ED09044CF10F19E24CF /* CollapseChevron.swift in Sources */,
 				08ADE29D07514CAA212D5C9A /* Eyebrow.swift in Sources */,
 				BBCA746F1F8404A60C848689 /* Gideon1App.swift in Sources */,
 				0624ED8E16D6D97571D4D13B /* GideonAgentHarness.swift in Sources */,
+				A01DDE7C185649F383A90101 /* GideonAgentTools.swift in Sources */,
 				22627A8688722843F5D29471 /* GideonModelSelectionStore.swift in Sources */,
 				9117D798667BFA61387B517E /* GlassCard.swift in Sources */,
 				F455578A71B5CABCE2C12AEF /* GlassPill.swift in Sources */,
+				335296629DD9219FD73CC9C4 /* GoogleOAuthService.swift in Sources */,
 				BADDB794F300574A1A36690B /* HealthView.swift in Sources */,
 				4C8C2C387DEF84CB1B96FA49 /* LocalModelRegistry.swift in Sources */,
 				16A34609ACB10716E8408BF4 /* LocalQwenRuntime.swift in Sources */,
@@ -406,13 +424,8 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = Gideon1;
-				INFOPLIST_KEY_LSRequiresIPhoneOS = YES;
-				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
-				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Gideon1/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -430,13 +443,8 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = Gideon1;
-				INFOPLIST_KEY_LSRequiresIPhoneOS = YES;
-				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
-				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Gideon1/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",

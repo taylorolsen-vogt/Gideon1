@@ -1,54 +1,84 @@
 import SwiftUI
 
 struct ActivityView: View {
+    @StateObject private var activityStore = AppActivityStore.shared
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Header.
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Eyebrow(text: "Task Queue", size: 12)
-                    PageTitle(text: "Activity")
+            ZStack(alignment: .top) {
+                PageTitle(text: "Activity", size: 30)
+                    .padding(.top, -2)
+
+                HStack(alignment: .top) {
+                    HeaderMenuButton()
+                    Spacer()
+                    Button {
+                        // Placeholder action until Activity-specific entry points are wired up.
+                    } label: {
+                        Image(systemName: "plus")
+                            .font(.system(size: 18, weight: .regular))
+                            .foregroundStyle(AppTheme.textPrimary)
+                            .padding(.top, 6)
+                    }
+                    .buttonStyle(.plain)
                 }
-                Spacer()
-                Image(systemName: "plus")
-                    .font(.system(size: 18, weight: .regular))
-                    .foregroundStyle(AppTheme.textPrimary)
-                    .padding(.top, 6)
             }
             .padding(.horizontal, 22)
             .padding(.top, 8)
+            .padding(.bottom, 8)
+            .background(AppTheme.background.opacity(0.96))
 
-            // ACTIVE.
-            SectionRowHeader(title: "Active")
-                .padding(.horizontal, 22)
-                .padding(.top, 18)
-            taskCard(title: "No active tasks", subtitle: "Gideon will add tasks here")
-                .padding(.horizontal, 22)
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 0) {
+                    // ACTIVE.
+                SectionRowHeader(title: "Active")
+                    .padding(.horizontal, 22)
+                    .padding(.top, 18)
+                stateSection(.active, emptyTitle: "No active tasks", emptySubtitle: "Gideon will add tasks here")
+
+                // NEXT.
+                SectionRowHeader(title: "Next")
+                    .padding(.horizontal, 22)
+                    .padding(.top, 18)
+                stateSection(.next, emptyTitle: "No next tasks yet", emptySubtitle: "Ask Gideon to plan the next step")
+
+                // COMPLETED / BLOCKED (collapsed).
+                SectionRowHeader(title: "Completed", collapsed: true)
+                    .padding(.horizontal, 22)
+                    .padding(.top, 18)
+                stateSection(.completed, emptyTitle: "No completed tasks", emptySubtitle: "Completed items will show up here")
+                SectionRowHeader(title: "Blocked", collapsed: true)
+                    .padding(.horizontal, 22)
+                    .padding(.top, 14)
+                stateSection(.blocked, emptyTitle: "No blocked tasks", emptySubtitle: "Blocked items will appear here")
+
+                    Color.clear.frame(height: 96)
+                }
                 .padding(.top, 10)
-
-            // NEXT.
-            SectionRowHeader(title: "Next")
-                .padding(.horizontal, 22)
-                .padding(.top, 18)
-            taskCard(title: "No next tasks yet", subtitle: "Ask Gideon to plan the next step")
-                .padding(.horizontal, 22)
-                .padding(.top, 10)
-
-            // COMPLETED / BLOCKED (collapsed).
-            SectionRowHeader(title: "Completed", collapsed: true)
-                .padding(.horizontal, 22)
-                .padding(.top, 18)
-            SectionRowHeader(title: "Blocked", collapsed: true)
-                .padding(.horizontal, 22)
-                .padding(.top, 14)
-
-            Spacer()
+            }
+            .scrollBounceBehavior(.basedOnSize)
+            .safeAreaPadding(.bottom, 12)
         }
-        .padding(.top, 18)
-        .padding(.bottom, 90)
     }
 
-    private func taskCard(title: String, subtitle: String) -> some View {
+    @ViewBuilder
+    private func stateSection(_ state: ActivityState, emptyTitle: String, emptySubtitle: String) -> some View {
+        let entries = activityStore.list(state: state)
+        if entries.isEmpty {
+            taskCard(title: emptyTitle, subtitle: emptySubtitle, source: nil)
+                .padding(.horizontal, 22)
+                .padding(.top, 10)
+        } else {
+            ForEach(entries.prefix(6)) { item in
+                taskCard(title: item.title, subtitle: item.detail, source: item.source)
+                    .padding(.horizontal, 22)
+                    .padding(.top, 10)
+            }
+        }
+    }
+
+    private func taskCard(title: String, subtitle: String, source: String?) -> some View {
         GlassCard(corner: 22, padding: 16) {
             HStack(alignment: .top, spacing: 12) {
                 Circle()
@@ -64,7 +94,9 @@ struct ActivityView: View {
                         .foregroundStyle(AppTheme.textSecondary)
                 }
                 Spacer(minLength: 6)
-                GlassPill(title: "Gideon")
+                if let source, !source.isEmpty {
+                    GlassPill(title: source)
+                }
             }
         }
     }

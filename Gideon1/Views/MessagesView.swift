@@ -4,6 +4,10 @@ struct MessagesView: View {
     @ObservedObject var store: MessagesSessionStore
     @EnvironmentObject private var modelSelection: GideonModelSelectionStore
     @FocusState private var isComposerFocused: Bool
+    @State private var autoFollowLatest = true
+    @State private var isAtBottom = true
+
+    private let bottomAnchorID = "chat-bottom-anchor"
 
     var body: some View {
         VStack(spacing: 0) {
@@ -23,14 +27,15 @@ struct MessagesView: View {
                         }
                     }
                 } label: {
-                    HStack(spacing: 8) {
+                    VStack(spacing: 4) {
                         Capsule()
                             .fill(AppTheme.textMuted)
                             .frame(width: 42, height: 4)
 
-                        Image(systemName: "chevron.down")
-                            .font(.system(size: 10, weight: .semibold))
+                        Text("HISTORY")
+                            .font(.system(size: 8, weight: .semibold))
                             .foregroundStyle(AppTheme.textTertiary)
+                            .tracking(1.2)
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 8)
@@ -54,65 +59,184 @@ struct MessagesView: View {
             }
             .padding(.horizontal, 22)
             .padding(.top, 4)
+            .onTapGesture {
+                isComposerFocused = false
+            }
 
-            ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 10) {
-                    ForEach(store.thread) { item in
-                        VStack(alignment: item.role == .user ? .trailing : .leading, spacing: 4) {
-                            Text(item.text)
-                                .font(.system(size: 14.5, weight: .regular))
+            ScrollViewReader { proxy in
+                ZStack(alignment: .bottomTrailing) {
+                    ScrollView(showsIndicators: false) {
+                        VStack(alignment: .leading, spacing: 10) {
+                            ForEach(store.thread) { item in
+                                VStack(alignment: item.role == .user ? .trailing : .leading, spacing: 4) {
+                                    Text(item.text)
+                                        .font(.system(size: 14.5, weight: .regular))
+                                        .foregroundStyle(AppTheme.textPrimary)
+                                        .padding(.horizontal, 14)
+                                        .padding(.vertical, 10)
+                                        .background(
+                                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                                .fill(item.role == .user ? Color.white.opacity(0.92) : AppTheme.textPrimary.opacity(0.06))
+                                        )
+
+                                    Text(messageMetaText(for: item))
+                                        .font(.system(size: 11, weight: .medium))
+                                        .foregroundStyle(AppTheme.textTertiary)
+                                        .padding(.horizontal, 2)
+                                }
+                                .frame(maxWidth: .infinity, alignment: item.role == .user ? .trailing : .leading)
+                            }
+
+                            if store.isGeneratingSelectedChat {
+                                Text(generationStatusText)
+                                    .font(.system(size: 13, weight: .medium))
+                                    .foregroundStyle(AppTheme.textSecondary)
+                                    .padding(.horizontal, 2)
+                            }
+
+                            if let email = store.pendingEmailForSelectedChat {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Label("Email awaiting approval", systemImage: "envelope.badge")
+                                        .font(.headline)
+                                    Text("From: \(email.sender)")
+                                    Text("To: \(email.recipients.joined(separator: ", "))")
+                                    Text("Subject: \(email.subject)")
+                                    Button("Review email") { store.reviewingEmail = email }
+                                        .buttonStyle(.borderedProminent)
+                                        .accessibilityIdentifier("email.review")
+                                }
+                                .font(.subheadline)
                                 .foregroundStyle(AppTheme.textPrimary)
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 10)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                        .fill(item.role == .user ? Color.white.opacity(0.92) : AppTheme.textPrimary.opacity(0.06))
-                                )
+                                .padding(16)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(Color.white, in: RoundedRectangle(cornerRadius: 16))
+                            }
 
-                            Text(Self.timestampFormatter.string(from: item.timestamp))
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundStyle(AppTheme.textTertiary)
-                                .padding(.horizontal, 2)
+                            // Keeps newest content visible above composer controls.
+                            Color.clear
+                                .frame(height: 18)
+
+                            Color.clear
+                                .frame(height: 1)
+                                .id(bottomAnchorID)
+                                .onAppear {
+                                    if !isAtBottom {
+                                        isAtBottom = true
+                                    }
+                                    if !autoFollowLatest {
+                                        autoFollowLatest = true
+                                    }
+                                }
+                                .onDisappear {
+                                    if isAtBottom {
+                                        isAtBottom = false
+                                    }
+                                }
                         }
-                        .frame(maxWidth: .infinity, alignment: item.role == .user ? .trailing : .leading)
+                        .padding(.horizontal, 16)
+                        .padding(.top, 12)
+                    }
+                    .scrollDismissesKeyboard(.interactively)
+                    .simultaneousGesture(
+                        DragGesture(minimumDistance: 8)
+                            .onChanged { drag in
+                                // User intentionally pulled down to inspect older messages.
+                                if drag.translation.height > 6, autoFollowLatest, !isAtBottom {
+                                    autoFollowLatest = false
+                                }
+                            }
+                    )
+                    .onTapGesture {
+                        isComposerFocused = false
+                    }
+                    .onAppear {
+                        scrollToBottom(proxy: proxy, animated: false)
+                    }
+                    .onChange(of: store.thread.count) { _, _ in
+                        scrollToBottom(proxy: proxy, animated: true)
+                    }
+                    .onChange(of: store.generatingChatID) { _, _ in
+                        scrollToBottom(proxy: proxy, animated: true)
+                    }
+                    .onChange(of: store.selectedChatID) { _, _ in
+                        autoFollowLatest = true
+                        scrollToBottom(proxy: proxy, animated: false)
+                    }
+                    .onChange(of: isAtBottom) { _, atBottom in
+                        if atBottom && !autoFollowLatest {
+                            autoFollowLatest = true
+                        }
                     }
 
-                    if store.isGenerating {
-                        Text(generationStatusText)
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(AppTheme.textSecondary)
-                            .padding(.horizontal, 2)
+                    if !autoFollowLatest && !isAtBottom {
+                        Button {
+                            autoFollowLatest = true
+                            scrollToBottom(proxy: proxy, animated: true)
+                        } label: {
+                            Label("Latest", systemImage: "arrow.down")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
+                                .background(
+                                    Capsule(style: .continuous)
+                                        .fill(AppTheme.darkBlock)
+                                )
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.trailing, 18)
+                        .padding(.bottom, 10)
                     }
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 12)
             }
-            .scrollDismissesKeyboard(.interactively)
-
-            Spacer()
 
             chatControlRow
                 .padding(.bottom, 14)
+                .onTapGesture {
+                    isComposerFocused = false
+                }
 
             // Composer.
             composer
                 .padding(.horizontal, 16)
                 .padding(.bottom, 18)
         }
-        .contentShape(Rectangle())
-        .simultaneousGesture(
-            TapGesture().onEnded {
-                isComposerFocused = false
+        .sheet(item: $store.reviewingEmail) { email in
+            NavigationStack {
+                Form {
+                    Section("Sender") { Text(email.sender).textSelection(.enabled) }
+                    Section("Recipients") {
+                        ForEach(email.recipients, id: \.self) { Text($0).textSelection(.enabled) }
+                    }
+                    Section("Subject") { Text(email.subject).textSelection(.enabled) }
+                    Section("Message") { Text(email.body).textSelection(.enabled) }
+                    Section {
+                        Text("Confirm sends this exact email through Gmail. Approval expires after 15 minutes. To change it, discard and ask Gideon for a revised email.")
+                            .font(.footnote)
+                        Button("Confirm & Send") { store.confirmEmail(email) }
+                            .accessibilityIdentifier("email.confirmSend")
+                        Button("Discard email", role: .destructive) { store.discardEmail(email) }
+                            .accessibilityIdentifier("email.discard")
+                    }
+                }
+                .navigationTitle("Review email")
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Close") { store.reviewingEmail = nil }
+                    }
+                }
             }
-        )
+        }
     }
 
     private var composer: some View {
-        HStack(spacing: 10) {
-            TextField("Message Gideon…", text: $store.message)
+        HStack(alignment: .bottom, spacing: 10) {
+            TextField("Message Gideon…", text: $store.message, axis: .vertical)
                 .font(.system(size: 15))
                 .foregroundStyle(AppTheme.textPrimary)
+                .lineLimit(1...6)
                 .padding(.leading, 18)
+                .padding(.vertical, 10)
                 .focused($isComposerFocused)
 
             Button {
@@ -129,11 +253,11 @@ struct MessagesView: View {
             }
             .buttonStyle(.plain)
             .padding(.trailing, 6)
-            .disabled(store.isGenerating)
+            .disabled(store.isGeneratingSelectedChat)
         }
-        .padding(.vertical, 6)
+        .padding(.vertical, 4)
         .background(
-            Capsule(style: .continuous)
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
                 .fill(Color.white)
                 .shadow(color: Color.black.opacity(0.06), radius: 10, x: 0, y: 4)
         )
@@ -149,56 +273,70 @@ struct MessagesView: View {
 
     private var modelDropdownHalf: some View {
         Menu {
-            Section("Model") {
-                ForEach(modelSelection.options) { option in
+            Section("Provider") {
+                ForEach(modelSelection.providerOptions) { option in
                     Button {
-                        modelSelection.select(option)
+                        modelSelection.selectProvider(option)
                     } label: {
-                        Label(
-                            option.title,
-                            systemImage: modelSelection.selectedOption.id == option.id ? "checkmark" : "circle"
-                        )
+                        HStack(spacing: 10) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(option.title)
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundStyle(AppTheme.textPrimary)
+                                Text(option.subtitle)
+                                    .font(.system(size: 11.5, weight: .regular))
+                                    .foregroundStyle(AppTheme.textSecondary)
+                            }
+                            Spacer(minLength: 8)
+                                    if modelSelection.selectedProviderOption.id == option.id {
+                                Image(systemName: "checkmark")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(AppTheme.textPrimary)
+                            }
+                        }
+                        .padding(.vertical, 2)
                     }
                     .disabled(!option.isAvailable)
                 }
             }
         } label: {
-            dropdownChip(text: condensedModelLabel)
+            dropdownChip(text: condensedProviderLabel)
         }
         .frame(maxWidth: .infinity)
         .buttonStyle(.plain)
-        .disabled(modelSelection.options.isEmpty)
+        .disabled(modelSelection.providerOptions.isEmpty)
     }
 
     private var reasoningDropdownHalf: some View {
         Menu {
-            Section("Reasoning") {
-                ForEach(GideonReasoningMode.allCases, id: \.rawValue) { mode in
+            Section("Model") {
+                ForEach(modelSelection.modelVariantsForSelectedProvider) { option in
                     Button {
-                        modelSelection.reasoningMode = mode
+                        modelSelection.selectModelVariant(option)
                     } label: {
-                        Label(
-                            mode.displayName,
-                            systemImage: modelSelection.reasoningMode == mode ? "checkmark" : "circle"
-                        )
+                        HStack(spacing: 10) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(option.title)
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundStyle(AppTheme.textPrimary)
+                                Text(option.detail)
+                                    .font(.system(size: 11.5, weight: .regular))
+                                    .foregroundStyle(AppTheme.textSecondary)
+                            }
+                            Spacer(minLength: 8)
+                            if modelSelection.selectedModelVariant.id == option.id {
+                                Image(systemName: "checkmark")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(AppTheme.textPrimary)
+                            }
+                        }
+                        .padding(.vertical, 2)
                     }
-                }
-            }
-
-            Section("Max Tokens") {
-                ForEach([24, 32, 40, 56, 72, 96], id: \.self) { tokenCap in
-                    Button {
-                        modelSelection.maxNewTokens = tokenCap
-                    } label: {
-                        Label(
-                            "\(tokenCap) tokens",
-                            systemImage: modelSelection.maxNewTokens == tokenCap ? "checkmark" : "circle"
-                        )
-                    }
+                    .disabled(!option.isAvailable)
                 }
             }
         } label: {
-            dropdownChip(text: "Reasoning: \(modelSelection.reasoningMode.displayName)")
+            dropdownChip(text: condensedVariantLabel)
         }
         .frame(maxWidth: .infinity)
         .buttonStyle(.plain)
@@ -220,8 +358,16 @@ struct MessagesView: View {
         .frame(maxWidth: .infinity, alignment: .center)
     }
 
-    private var condensedModelLabel: String {
-        let title = modelSelection.selectedOption.title
+    private var condensedProviderLabel: String {
+        let title = modelSelection.selectedProviderOption.title
+        if title.count <= 24 {
+            return title
+        }
+        return "Provider: \(String(title.prefix(14)))"
+    }
+
+    private var condensedVariantLabel: String {
+        let title = modelSelection.selectedModelVariant.title
         if title.count <= 24 {
             return title
         }
@@ -231,6 +377,27 @@ struct MessagesView: View {
     private func sendFromComposer() {
         isComposerFocused = false
         store.sendCurrentMessage()
+    }
+
+    private func scrollToBottom(proxy: ScrollViewProxy, animated: Bool) {
+        guard autoFollowLatest else { return }
+        if animated {
+            withAnimation(.easeOut(duration: 0.2)) {
+                proxy.scrollTo(bottomAnchorID, anchor: .bottom)
+            }
+        } else {
+            proxy.scrollTo(bottomAnchorID, anchor: .bottom)
+        }
+    }
+
+    private func messageMetaText(for item: ChatItem) -> String {
+        let time = Self.timestampFormatter.string(from: item.timestamp)
+        guard item.role == .assistant,
+              let modelLabel = item.modelLabel,
+              !modelLabel.isEmpty else {
+            return time
+        }
+        return "\(time) • \(modelLabel)"
     }
 
     private var generationStatusText: String {
@@ -251,20 +418,29 @@ struct MessagesView: View {
     }()
 }
 
-struct ChatItem: Identifiable {
-    enum Role {
+struct ChatItem: Identifiable, Codable {
+    enum Role: String, Codable {
         case user
         case assistant
     }
 
-    let id = UUID()
+    let id: UUID
     let role: Role
     let text: String
-    let timestamp: Date = Date()
+    let modelLabel: String?
+    let timestamp: Date
+
+    init(id: UUID = UUID(), role: Role, text: String, modelLabel: String? = nil, timestamp: Date = Date()) {
+        self.id = id
+        self.role = role
+        self.text = text
+        self.modelLabel = modelLabel
+        self.timestamp = timestamp
+    }
 }
 
-struct ChatSession: Identifiable {
-    let id: UUID
+struct ChatSession: Identifiable, Codable {
+    var id: UUID
     var title: String
     var messages: [ChatItem]
 }
@@ -275,15 +451,62 @@ final class MessagesSessionStore: ObservableObject {
     @Published private(set) var chats: [ChatSession] = []
     @Published private(set) var selectedChatID: UUID?
     @Published var isGenerating = false
+    @Published private(set) var generatingChatID: UUID?
     @Published var isPreparingModel = false
+    @Published var reviewingEmail: PendingGmailSend?
+    @Published private var emailApprovals: [UUID: EmailApproval] = [:]
+    @Published private var sendingEmailChats: Set<UUID> = []
+
+    private struct EmailApproval {
+        let email: PendingGmailSend
+        let session: GideonAgentToolSession
+    }
+
+    var pendingEmailForSelectedChat: PendingGmailSend? {
+        selectedChatID.flatMap { emailApprovals[$0]?.email }
+    }
+
+    func discardEmail(_ email: PendingGmailSend) {
+        guard let entry = emailApprovals.first(where: { $0.value.email.id == email.id }) else { return }
+        emailApprovals.removeValue(forKey: entry.key)
+        reviewingEmail = nil
+        Task { await entry.value.session.discardPendingSend(id: email.id) }
+        append(.init(role: .assistant, text: "Email discarded. Nothing was sent.", modelLabel: "Gmail"), to: entry.key)
+    }
+
+    func confirmEmail(_ email: PendingGmailSend) {
+        guard let chatID = selectedChatID, let approval = emailApprovals[chatID],
+              approval.email == email, !sendingEmailChats.contains(chatID) else { return }
+        // Consume UI approval synchronously; model output and repeated taps cannot authorize sending.
+        emailApprovals.removeValue(forKey: chatID)
+        reviewingEmail = nil
+        sendingEmailChats.insert(chatID)
+        let userID = AppSessionStore.shared.currentUserID
+        append(.init(role: .assistant,
+                     text: "Email send approved. Awaiting Gmail's response. If this run is interrupted, check Sent before attempting another send.",
+                     modelLabel: "Gmail"), to: chatID)
+        Task {
+            let outcome = await approval.session.confirmSend(id: email.id)
+            sendingEmailChats.remove(chatID)
+            guard AppSessionStore.shared.currentUserID == userID else { return }
+            append(.init(role: .assistant, text: outcome.text, modelLabel: "Gmail"), to: chatID)
+        }
+    }
 
     private var generationTask: Task<Void, Never>?
+    private var observerTokens: [NSObjectProtocol] = []
+    private var coldLaunchChatID: UUID?
+    private static let storageKey = "gideon.chatSessions.v2"
+    private static let selectedChatStorageKey = "gideon.chatSessions.selected.v1"
     private let coldStartTimeoutNanoseconds: UInt64 = 180_000_000_000
     private var generationTimeoutNanoseconds: UInt64 {
         let selection = GideonModelSelectionStore.shared
         let tokenCap = selection.maxNewTokens
         let seconds: Int
         switch selection.selectedOption.backend {
+        case .apiModel:
+            // Remote turns may contain multiple bounded model/tool round trips.
+            seconds = 300
         case .gideonServer:
             seconds = max(25, tokenCap)
         default:
@@ -300,7 +523,17 @@ final class MessagesSessionStore: ObservableObject {
     }
 
     init() {
-        createNewChat()
+        loadLocal()
+        registerObservers()
+        switch AppDataModeStore.shared.mode {
+        case .local:
+            selectFreshChatForColdLaunch()
+        case .cloud:
+            Task {
+                await loadCloud()
+                selectFreshChatForColdLaunch()
+            }
+        }
         warmModelIfNeeded()
     }
 
@@ -310,14 +543,20 @@ final class MessagesSessionStore: ObservableObject {
 
     func sendCurrentMessage() {
         let prompt = message.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !prompt.isEmpty, !isGenerating else { return }
+        guard !prompt.isEmpty else { return }
         guard let selectedChatID else { return }
+        guard generatingChatID != selectedChatID else { return }
+        guard !sendingEmailChats.contains(selectedChatID) else { return }
+        if let previous = emailApprovals[selectedChatID] { discardEmail(previous.email) }
+        let responseModelLabel = GideonModelSelectionStore.shared.selectedOption.title
+        let isRemote = GideonModelSelectionStore.shared.selectedOption.backend == .apiModel
 
         generationTask?.cancel()
 
         append(.init(role: .user, text: prompt), to: selectedChatID)
         message = ""
         isGenerating = true
+        generatingChatID = selectedChatID
 
         // Exclude the just-appended user message because it is provided separately
         // as `prompt` to the harness.
@@ -326,25 +565,38 @@ final class MessagesSessionStore: ObservableObject {
         }
 
         generationTask = Task {
-            let timeout = self.activeThread.count <= 1 ? self.coldStartTimeoutNanoseconds : self.generationTimeoutNanoseconds
+            let timeout = !isRemote && self.activeThread.count <= 1 ? self.coldStartTimeoutNanoseconds : self.generationTimeoutNanoseconds
             let result = await respondWithTimeout(prompt: prompt, history: historyTurns, timeoutNanoseconds: timeout)
             if Task.isCancelled { return }
 
             await MainActor.run {
+                guard self.generatingChatID == selectedChatID else { return }
                 if let result {
-                    self.append(.init(role: .assistant, text: result.text), to: selectedChatID)
+                    self.append(.init(role: .assistant, text: result.text, modelLabel: responseModelLabel), to: selectedChatID)
+                    if let email = result.pendingEmail, let session = result.emailSession {
+                        self.emailApprovals[selectedChatID] = EmailApproval(email: email, session: session)
+                    }
                 } else {
                     self.append(
                         .init(
                             role: .assistant,
-                            text: "I’m still loading the local model and timed out on this turn. Please try again with a shorter prompt."
+                            text: isRemote
+                                ? "The provider/tool run timed out and was cancelled. Completed actions were not undone. Check Activity before retrying."
+                                : "The local model timed out on this turn. Please try again with a shorter prompt.",
+                            modelLabel: responseModelLabel
                         ),
                         to: selectedChatID
                     )
                 }
+                self.generatingChatID = nil
                 self.isGenerating = false
             }
         }
+    }
+
+    var isGeneratingSelectedChat: Bool {
+        guard let selectedChatID else { return false }
+        return generatingChatID == selectedChatID || sendingEmailChats.contains(selectedChatID)
     }
 
     func createNewChat() {
@@ -356,11 +608,29 @@ final class MessagesSessionStore: ObservableObject {
         chats.insert(chat, at: 0)
         selectedChatID = chat.id
         message = ""
+        persist()
+    }
+
+    private func selectFreshChatForColdLaunch() {
+        if let existing = chats.first(where: { $0.messages.isEmpty }) {
+            coldLaunchChatID = existing.id
+            selectedChatID = existing.id
+            message = ""
+            persist()
+            return
+        }
+        createNewChat()
+        coldLaunchChatID = selectedChatID
     }
 
     func selectChat(id: UUID) {
+        reviewingEmail = nil
+        if id != coldLaunchChatID {
+            coldLaunchChatID = nil
+        }
         selectedChatID = id
         message = ""
+        persistLocal()
     }
 
     var thread: [ChatItem] {
@@ -418,6 +688,220 @@ final class MessagesSessionStore: ObservableObject {
             let trimmed = item.text.trimmingCharacters(in: .whitespacesAndNewlines)
             chats[index].title = String(trimmed.prefix(28)).isEmpty ? "New Chat" : String(trimmed.prefix(28))
         }
+
+        persist()
+    }
+
+    private func persist() {
+        switch AppDataModeStore.shared.mode {
+        case .local:
+            persistLocal()
+        case .cloud:
+            persistLocal()
+            Task { [snapshot = chats, selected = selectedChatID] in
+                await persistCloud(snapshot: snapshot, selectedID: selected)
+            }
+        }
+    }
+
+    private func persistLocal() {
+        if let selectedChatID {
+            UserDefaults.standard.set(selectedChatID.uuidString, forKey: Self.selectedChatStorageKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: Self.selectedChatStorageKey)
+        }
+
+        guard let data = try? JSONEncoder().encode(chats) else { return }
+        UserDefaults.standard.set(data, forKey: Self.storageKey)
+    }
+
+    private func loadLocal() {
+        guard let data = UserDefaults.standard.data(forKey: Self.storageKey),
+              let decoded = try? JSONDecoder().decode([ChatSession].self, from: data) else {
+            chats = []
+            selectedChatID = nil
+            return
+        }
+
+        chats = decoded
+
+        if let savedSelected = UserDefaults.standard.string(forKey: Self.selectedChatStorageKey),
+           let uuid = UUID(uuidString: savedSelected),
+           chats.contains(where: { $0.id == uuid }) {
+            selectedChatID = uuid
+        } else {
+            selectedChatID = chats.first?.id
+        }
+    }
+
+    private func registerObservers() {
+        let center = NotificationCenter.default
+        observerTokens.append(
+            center.addObserver(forName: .gideonDataModeChanged, object: nil, queue: .main) { [weak self] _ in
+                guard let self else { return }
+                Task { await self.reloadFromCurrentMode() }
+            }
+        )
+        observerTokens.append(
+            center.addObserver(forName: .gideonSessionChanged, object: nil, queue: .main) { [weak self] _ in
+                guard let self else { return }
+                Task { await self.reloadFromCurrentMode() }
+            }
+        )
+    }
+
+    func reloadFromCurrentMode() async {
+        // Approvals never persist or cross account/data-mode changes.
+        generationTask?.cancel()
+        generatingChatID = nil
+        isGenerating = false
+        reviewingEmail = nil
+        let discarded = Array(emailApprovals.values)
+        emailApprovals.removeAll()
+        for approval in discarded { await approval.session.discardPendingSend(id: approval.email.id) }
+        let launchChat = coldLaunchChatID.flatMap { launchID in
+            chats.first(where: { $0.id == launchID })
+        }
+        let shouldPreserveLaunchChat = launchChat != nil && selectedChatID == coldLaunchChatID
+
+        loadLocal()
+        switch AppDataModeStore.shared.mode {
+        case .local:
+            loadLocal()
+            if chats.isEmpty {
+                createNewChat()
+            }
+        case .cloud:
+            await loadCloud()
+            if chats.isEmpty {
+                createNewChat()
+            }
+        }
+
+        if shouldPreserveLaunchChat, let launchChat {
+            if !chats.contains(where: { $0.id == launchChat.id }) {
+                chats.insert(launchChat, at: 0)
+            }
+            selectedChatID = launchChat.id
+            persist()
+        }
+    }
+
+    private func loadCloud() async {
+        guard let userID = AppSessionStore.shared.currentUserID,
+              let token = AppSessionStore.shared.currentAccessToken,
+              let url = URL(string: "\(AppSessionStore.supabaseRESTURL)/chat_sessions?user_id=eq.\(userID)&select=*&order=created_at.desc") else {
+            loadLocal()
+            return
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 30
+        request.setValue(AppSessionStore.supabasePublishableKey, forHTTPHeaderField: "apikey")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+                return
+            }
+
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            let rows = try decoder.decode([SupabaseChatSessionDTO].self, from: data)
+            if rows.isEmpty {
+                chats = []
+                selectedChatID = nil
+                persistLocal()
+                return
+            }
+
+            let cloudChats = rows.map { $0.toRecord() }
+            chats = cloudChats
+            if let selected = rows.first(where: { $0.isSelected == true })?.id,
+               chats.contains(where: { $0.id == selected }) {
+                selectedChatID = selected
+            } else {
+                selectedChatID = chats.first?.id
+            }
+            persistLocal()
+        } catch {
+            // Keep local cache when cloud read fails.
+        }
+    }
+
+    private func persistCloud(snapshot: [ChatSession], selectedID: UUID?) async {
+        guard let userID = AppSessionStore.shared.currentUserID,
+              let token = AppSessionStore.shared.currentAccessToken,
+              !snapshot.isEmpty,
+              let insertURL = URL(string: "\(AppSessionStore.supabaseRESTURL)/chat_sessions?on_conflict=user_id,id") else {
+            return
+        }
+
+        do {
+            let payload = snapshot.map {
+                SupabaseChatSessionDTO(record: $0, userID: userID, isSelected: $0.id == selectedID)
+            }
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
+
+            var insertRequest = URLRequest(url: insertURL)
+            insertRequest.httpMethod = "POST"
+            insertRequest.timeoutInterval = 30
+            insertRequest.setValue(AppSessionStore.supabasePublishableKey, forHTTPHeaderField: "apikey")
+            insertRequest.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            insertRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            insertRequest.setValue("return=minimal, resolution=merge-duplicates", forHTTPHeaderField: "Prefer")
+            insertRequest.httpBody = try encoder.encode(payload)
+
+            let (_, response) = try await URLSession.shared.data(for: insertRequest)
+            guard let http = response as? HTTPURLResponse,
+                  (200..<300).contains(http.statusCode) else {
+                print("[Gideon] chat cloud insert failed for user \(userID)")
+                return
+            }
+        } catch {
+            print("[Gideon] chat cloud sync error: \(error.localizedDescription)")
+        }
+    }
+
+    private func totalMessageCount(_ sessions: [ChatSession]) -> Int {
+        sessions.reduce(0) { partial, session in
+            partial + session.messages.count
+        }
+    }
+}
+
+private struct SupabaseChatSessionDTO: Codable {
+    let id: UUID
+    let userID: String
+    let title: String
+    let messagesJSON: [ChatItem]
+    let isSelected: Bool?
+    let createdAt: Date
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case userID = "user_id"
+        case title
+        case messagesJSON = "messages_json"
+        case isSelected = "is_selected"
+        case createdAt = "created_at"
+    }
+
+    init(record: ChatSession, userID: String, isSelected: Bool) {
+        self.id = record.id
+        self.userID = userID
+        self.title = record.title
+        self.messagesJSON = record.messages
+        self.isSelected = isSelected
+        self.createdAt = record.messages.first?.timestamp ?? Date()
+    }
+
+    func toRecord() -> ChatSession {
+        ChatSession(id: id, title: title, messages: messagesJSON)
     }
 }
 

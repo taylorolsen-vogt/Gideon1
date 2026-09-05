@@ -17,11 +17,6 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.taylorolsenvogt.Gideon1
-        INFOPLIST_KEY_CFBundleDisplayName: Gideon1
-        INFOPLIST_KEY_LSRequiresIPhoneOS: YES
-        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
-        INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
-        INFOPLIST_KEY_UILaunchScreen_Generation: YES
-        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: UIInterfaceOrientationPortrait
-        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_FILE: Gideon1/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
         CODE_SIGN_STYLE: Automatic

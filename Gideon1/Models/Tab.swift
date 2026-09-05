@@ -8,4 +8,8 @@ enum AppTab: String, CaseIterable, Identifiable {
     case connections
 
     var id: String { rawValue }
+
+    var accessibilityLabel: String {
+        rawValue.capitalized
+    }
 }

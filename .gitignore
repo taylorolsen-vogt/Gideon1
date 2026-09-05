@@ -8,6 +8,9 @@ DerivedData/
 # macOS Finder
 .DS_Store
 
+# Generated Supabase CLI cache (keep local connection metadata out of Git)
+supabase/.temp/
+
 # Large local model artifacts (keep local, do not commit)
 Gideon1/Models/qwen25-3b-coreml/qwen25_monolithic_lut4.mlmodelc/weights/weight.bin
 Gideon1/Models/qwen25-3b-coreml/qwen25_monolithic_lut4.mlmodelc/coremldata.bin

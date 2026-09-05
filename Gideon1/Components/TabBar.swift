@@ -17,6 +17,7 @@ struct TabBar: View {
                 .buttonStyle(.plain)
                 .frame(maxWidth: .infinity)
                 .contentShape(Rectangle())
+                .accessibilityLabel(tab.accessibilityLabel)
             }
         }
         .padding(.horizontal, 28)
