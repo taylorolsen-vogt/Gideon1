@@ -24,7 +24,7 @@ final class ChatSessionStore: ObservableObject {
 
     init() {
         for name in [Notification.Name.gideonSessionChanged, .gideonDataModeChanged] {
-            observerTokens.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+            observerTokens.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: nil) { [weak self] _ in
                 MainActor.assumeIsolated { self?.resetForCurrentScope() }
             })
         }
@@ -445,7 +445,7 @@ final class AppProjectStore: ObservableObject {
     private func registerObservers() {
         let center = NotificationCenter.default
         observerTokens.append(
-            center.addObserver(forName: .gideonDataModeChanged, object: nil, queue: .main) { [weak self] _ in
+            center.addObserver(forName: .gideonDataModeChanged, object: nil, queue: nil) { [weak self] _ in
                 MainActor.assumeIsolated {
                     guard let self else { return }
                     self.load()
@@ -456,7 +456,7 @@ final class AppProjectStore: ObservableObject {
             }
         )
         observerTokens.append(
-            center.addObserver(forName: .gideonSessionChanged, object: nil, queue: .main) { [weak self] _ in
+            center.addObserver(forName: .gideonSessionChanged, object: nil, queue: nil) { [weak self] _ in
                 MainActor.assumeIsolated {
                     guard let self else { return }
                     self.load()
@@ -755,7 +755,7 @@ final class AppActivityStore: ObservableObject {
     private func registerObservers() {
         let center = NotificationCenter.default
         observerTokens.append(
-            center.addObserver(forName: .gideonDataModeChanged, object: nil, queue: .main) { [weak self] _ in
+            center.addObserver(forName: .gideonDataModeChanged, object: nil, queue: nil) { [weak self] _ in
                 MainActor.assumeIsolated {
                     guard let self else { return }
                     self.load()
@@ -766,7 +766,7 @@ final class AppActivityStore: ObservableObject {
             }
         )
         observerTokens.append(
-            center.addObserver(forName: .gideonSessionChanged, object: nil, queue: .main) { [weak self] _ in
+            center.addObserver(forName: .gideonSessionChanged, object: nil, queue: nil) { [weak self] _ in
                 MainActor.assumeIsolated {
                     guard let self else { return }
                     self.load()

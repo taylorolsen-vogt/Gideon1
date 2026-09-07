@@ -362,7 +362,7 @@ final class GideonModelSelectionStore: ObservableObject {
 
     private func registerObservers() {
         for name in [Notification.Name.gideonSessionChanged, .gideonDataModeChanged] {
-            observerTokens.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+            observerTokens.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: nil) { [weak self] _ in
                 MainActor.assumeIsolated {
                     guard let self else { return }
                     // Root has activated the new generation; replace personal state
