@@ -1,6 +1,14 @@
 import Foundation
 
 private struct AgentToolFailure: Error { let message: String }
+private struct AgentToolNotDispatched: Error {}
+
+private let expiredToolSession = "Tool session cancelled or changed. Start a new request in the current session."
+
+@MainActor private func requireToolScope(_ scope: SessionScope) throws {
+    try Task.checkCancellation()
+    guard scope.isCurrent else { throw AgentToolFailure(message: expiredToolSession) }
+}
 
 struct PendingGmailSend: Identifiable, Sendable, Equatable {
     let id: UUID
@@ -240,7 +248,46 @@ enum GideonAgentToolCodec {
     }
 }
 
-private final class AgentNoRedirect: NSObject, URLSessionTaskDelegate {
+// URLSession invokes this delegate on its serial delegate queue. Only cancellation
+// touches the session from outside that queue; delegate state stays queue-confined.
+private final class AgentNoRedirect: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+    let continuation: CheckedContinuation<(Data, Int), any Error>
+    private var data = Data()
+    private var status = 0
+    private var failure: (any Error)?
+
+    init(continuation: CheckedContinuation<(Data, Int), any Error>) { self.continuation = continuation }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse,
+                    completionHandler: @escaping @Sendable (URLSession.ResponseDisposition) -> Void) {
+        guard let http = response as? HTTPURLResponse else {
+            failure = AgentToolFailure(message: "Invalid HTTP response.")
+            completionHandler(.cancel); return
+        }
+        status = http.statusCode
+        if (200..<300).contains(status), response.expectedContentLength > GideonAgentToolCodec.bodyLimit {
+            failure = AgentToolFailure(message: "Response exceeds the 1 MB limit.")
+            completionHandler(.cancel); return
+        }
+        completionHandler(.allow)
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive chunk: Data) {
+        // Error bodies are neither retained nor exposed.
+        guard (200..<300).contains(status), failure == nil else { return }
+        guard data.count + chunk.count <= GideonAgentToolCodec.bodyLimit else {
+            failure = AgentToolFailure(message: "Response exceeds the 1 MB limit.")
+            dataTask.cancel(); return
+        }
+        data.append(chunk)
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: (any Error)?) {
+        if let error = failure ?? error { continuation.resume(throwing: error) }
+        else { continuation.resume(returning: (data, status)) }
+        session.finishTasksAndInvalidate()
+    }
+
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
                     newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void) {
         completionHandler(nil)
@@ -249,32 +296,58 @@ private final class AgentNoRedirect: NSObject, URLSessionTaskDelegate {
 
 /// Injectable at the HTTP boundary; the live implementation streams under a hard body cap.
 struct GideonAgentToolTransport: Sendable {
-    let send: @Sendable (URLRequest) async throws -> (Data, Int)
-    static let live = Self { request in
-        try Task.checkCancellation()
+    private let injected: (@MainActor @Sendable (URLRequest) async throws -> (Data, Int))?
+    init(_ send: @escaping @MainActor @Sendable (URLRequest) async throws -> (Data, Int)) { injected = send }
+    private init() { injected = nil }
+    static let live = Self()
+
+    /// No suspension between final authorization and live URLSessionTask.resume().
+    /// Injected transports must dispatch before their first suspension if they need
+    /// the same guarantee; their asynchronous response remains fenced by callers.
+    @MainActor func send(_ request: URLRequest, scope: SessionScope,
+                         authorize: @MainActor @Sendable () throws -> Void = {}) async throws -> (Data, Int) {
+        do {
+            try requireToolScope(scope)
+            try authorize()
+        } catch { throw AgentToolNotDispatched() }
+        if let injected { return try await injected(request) }
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 20; configuration.timeoutIntervalForResource = 30
         configuration.httpCookieStorage = nil; configuration.urlCredentialStorage = nil; configuration.urlCache = nil
-        let session = URLSession(configuration: configuration, delegate: AgentNoRedirect(), delegateQueue: nil)
-        defer { session.invalidateAndCancel() }
-        let (bytes, response) = try await session.bytes(for: request)
-        guard let http = response as? HTTPURLResponse else { throw AgentToolFailure(message: "Invalid HTTP response.") }
-        guard (200..<300).contains(http.statusCode) else { return (Data(), http.statusCode) }
-        guard response.expectedContentLength <= GideonAgentToolCodec.bodyLimit else { throw AgentToolFailure(message: "Response exceeds the 1 MB limit.") }
-        var data = Data()
-        for try await byte in bytes {
-            try Task.checkCancellation()
-            guard data.count < GideonAgentToolCodec.bodyLimit else { throw AgentToolFailure(message: "Response exceeds the 1 MB limit.") }
-            data.append(byte)
+        // The cancellation handler and resume are serialized by this lock, not an
+        // unstructured Task (which would lose cancellation and open a dispatch gap).
+        let dispatch = AgentToolDispatch()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                let delegate = AgentNoRedirect(continuation: continuation)
+                let session = URLSession(configuration: configuration, delegate: delegate, delegateQueue: nil)
+                dispatch.start(session.dataTask(with: request))
+            }
+        } onCancel: {
+            dispatch.cancel()
         }
-        return (data, http.statusCode)
+    }
+}
+
+private final class AgentToolDispatch: @unchecked Sendable {
+    private let lock = NSLock()
+    private var task: URLSessionDataTask?
+    private var cancelled = false
+    func start(_ task: URLSessionDataTask) {
+        lock.lock(); defer { lock.unlock() }
+        self.task = task
+        if cancelled { task.cancel() } else { task.resume() }
+    }
+    func cancel() {
+        lock.lock(); defer { lock.unlock() }
+        cancelled = true; task?.cancel()
     }
 }
 
 private extension GoogleOAuthService {
     /// Unlike the legacy shared-session refresh, this uses the tool's bounded, redirect-denying transport.
-    func agentRefreshAccessToken(refreshToken: String, transport: GideonAgentToolTransport) async throws -> String {
-        try Task.checkCancellation()
+    func agentRefreshAccessToken(refreshToken: String, transport: GideonAgentToolTransport, scope: SessionScope) async throws -> String {
+        try requireToolScope(scope)
         var request = URLRequest(url: try GideonAgentToolCodec.url(host: "oauth2.googleapis.com", segments: ["token"]))
         request.httpMethod = "POST"; request.timeoutInterval = 20
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
@@ -282,7 +355,8 @@ private extension GoogleOAuthService {
             ("client_id", Self.clientID), ("refresh_token", refreshToken), ("grant_type", "refresh_token")
         ])
         request.httpBody = Data((URLComponents(url: form, resolvingAgainstBaseURL: false)?.percentEncodedQuery ?? "").utf8)
-        let (data, status) = try await transport.send(request)
+        let (data, status) = try await transport.send(request, scope: scope)
+        try requireToolScope(scope)
         guard (200..<300).contains(status), data.count <= GideonAgentToolCodec.bodyLimit,
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let token = object["access_token"] as? String, !token.isEmpty else {
@@ -294,6 +368,7 @@ private extension GoogleOAuthService {
 
 actor GideonAgentToolSession {
     private struct Snapshot: Sendable {
+        let scope: SessionScope
         let context: String
         let definitions: [RemoteToolDefinition]
         let accounts: [UUID: String]
@@ -303,9 +378,16 @@ actor GideonAgentToolSession {
     private let transport: GideonAgentToolTransport
     private let now: @Sendable () -> Date
     private var snapshot: Snapshot?
+    private var captureTask: Task<Snapshot, Never>?
     private var secrets: Set<String> = []
     private(set) var usedTool = false
-    private(set) var pendingSend: PendingGmailSend?
+    private var proposal: PendingGmailSend?
+    var pendingSend: PendingGmailSend? {
+        get async {
+            guard let scope = snapshot?.scope, await scope.isCurrent else { proposal = nil; return nil }
+            return proposal
+        }
+    }
     private var preparingSend = false
     private var proposalCreated = false
 
@@ -316,19 +398,32 @@ actor GideonAgentToolSession {
 
     func prepare() async -> (systemContext: String, definitions: [RemoteToolDefinition]) {
         if snapshot == nil {
-            let captured = await Self.capture()
+            // Concurrent preparations share one capture; an old caller must
+            // never acquire another generation's snapshot after suspension.
+            if captureTask == nil { captureTask = Task { @MainActor in Self.capture() } }
+            let captured = await captureTask!.value
             if snapshot == nil { snapshot = captured }
         }
-        return (snapshot!.context, snapshot!.definitions)
+        guard let snapshot, await snapshot.scope.isCurrent else {
+            proposal = nil
+            return (expiredToolSession, [])
+        }
+        return (snapshot.context, snapshot.definitions)
+    }
+
+    private func checkScope() async throws {
+        guard let scope = snapshot?.scope else { throw AgentToolFailure(message: "Tool unavailable. Prepare a session first.") }
+        try await requireToolScope(scope)
     }
 
     @MainActor private static func capture() -> Snapshot {
-        let cancelled = Snapshot(context: "Tool preparation cancelled; no tools available.", definitions: [], accounts: [:], projectIDs: [], projectsJSON: "{}")
+        let scope = SessionScope.current
+        let cancelled = Snapshot(scope: scope, context: "Tool preparation cancelled; no tools available.", definitions: [], accounts: [:], projectIDs: [], projectsJSON: "{}")
         var allowed: [UUID: String] = [:], accounts: [[String: Any]] = [], projects: [[String: Any]] = []
         for record in AccountStore.shared.accounts.prefix(50) {
             if Task.isCancelled { return cancelled }
             let service = GideonAgentToolCodec.service(record.service)
-            let saved = !(AccountStore.shared.apiKey(for: record) ?? "").isEmpty
+            let saved = !(AccountStore.shared.apiKey(for: record, expectedScope: scope) ?? "").isEmpty
             let baseOK = service.map { GideonAgentToolCodec.standardBase(record.baseURL, service: $0) } ?? false
             let available = service != nil && saved && baseOK
             if available { allowed[record.id] = service! }
@@ -360,7 +455,7 @@ actor GideonAgentToolSession {
         Local projects available for reading:
         \(projectsJSON)
         """
-        return Snapshot(context: context, definitions: definitions, accounts: allowed, projectIDs: projectIDs, projectsJSON: projectsJSON)
+        return Snapshot(scope: scope, context: context, definitions: definitions, accounts: allowed, projectIDs: projectIDs, projectsJSON: projectsJSON)
     }
 
     func execute(_ call: RemoteToolCall) async -> String {
@@ -372,49 +467,60 @@ actor GideonAgentToolSession {
             guard let snapshot, snapshot.definitions.contains(where: { $0.name == call.name }) else {
                 throw AgentToolFailure(message: "Tool unavailable. Prepare a session with a supported saved credential first.")
             }
+            try await checkScope()
             let value = try await perform(call.name, args: args, snapshot: snapshot)
-            try Task.checkCancellation()
+            try await checkScope()
             result = value
             completed = true; usedTool = true
         } catch is CancellationError { result = "Tool cancelled." }
         catch let failure as AgentToolFailure { result = failure.message }
         catch { result = Task.isCancelled ? "Tool cancelled." : "Request failed or response was invalid. Check connectivity and reconnect the account if needed." }
         let auditName = GideonAgentToolCodec.specs.contains { $0.name == call.name } ? call.name : "unrecognized_tool"
-        await MainActor.run { AppActivityStore.shared.add(title: auditName, detail: completed ? "completed" : "blocked", state: completed ? .completed : .blocked) }
+        let scope = snapshot?.scope
+        let publish = await MainActor.run {
+            guard let scope, scope.isCurrent else { return false }
+            AppActivityStore.shared.add(title: auditName, detail: completed ? "completed" : "blocked", state: completed ? .completed : .blocked)
+            return true
+        }
+        if scope != nil && !publish { proposal = nil; usedTool = false; return expiredToolSession }
         var safe = result
         for secret in secrets where !secret.isEmpty {
             safe = safe.replacingOccurrences(of: secret, with: "[REDACTED]")
             let quoted = GideonAgentToolCodec.json(secret)
             if quoted.hasPrefix("\""), quoted.hasSuffix("\"") { safe = safe.replacingOccurrences(of: String(quoted.dropFirst().dropLast()), with: "[REDACTED]") }
         }
-        return GideonAgentToolCodec.clipped(safe, limit: GideonAgentToolCodec.outputLimit)
+        let visible = GideonAgentToolCodec.clipped(safe, limit: GideonAgentToolCodec.outputLimit)
+        return await MainActor.run {
+            guard let scope else { return visible }
+            return scope.isCurrent ? visible : expiredToolSession
+        }
     }
 
-    @MainActor private static func credential(id: UUID, service: String) throws -> String {
-        try Task.checkCancellation()
+    @MainActor private static func credential(id: UUID, service: String, scope: SessionScope) throws -> String {
+        try requireToolScope(scope)
         guard let record = AccountStore.shared.accounts.first(where: { $0.id == id }), GideonAgentToolCodec.service(record.service) == service,
               GideonAgentToolCodec.standardBase(record.baseURL, service: service) else {
             throw AgentToolFailure(message: "Account removed, changed, or uses an unsupported base URL. Prepare a new session.")
         }
-        guard let token = AccountStore.shared.apiKey(for: record), !token.isEmpty else {
+        guard let token = AccountStore.shared.apiKey(for: record, expectedScope: scope), !token.isEmpty else {
             throw AgentToolFailure(message: "Credential missing. Reconnect the account in Connections.")
         }
         return token
     }
 
-    @MainActor private static func refresh(id: UUID, transport: GideonAgentToolTransport) async throws -> String {
-        let previous = try credential(id: id, service: "gmail")
+    @MainActor private static func refresh(id: UUID, transport: GideonAgentToolTransport, scope: SessionScope) async throws -> String {
+        let previous = try credential(id: id, service: "gmail", scope: scope)
         guard let record = AccountStore.shared.accounts.first(where: { $0.id == id }),
-              let refresh = AccountStore.shared.refreshToken(for: record), !refresh.isEmpty else {
+              let refresh = AccountStore.shared.refreshToken(for: record, expectedScope: scope), !refresh.isEmpty else {
             throw AgentToolFailure(message: "Google refresh unavailable. Reconnect this Gmail account in Connections.")
         }
         let token: String
-        do { token = try await GoogleOAuthService.shared.agentRefreshAccessToken(refreshToken: refresh, transport: transport) }
-        catch { try Task.checkCancellation(); throw AgentToolFailure(message: "Google refresh failed. Reconnect this Gmail account in Connections.") }
-        guard try credential(id: id, service: "gmail") == previous, AccountStore.shared.refreshToken(for: record) == refresh else {
+        do { token = try await GoogleOAuthService.shared.agentRefreshAccessToken(refreshToken: refresh, transport: transport, scope: scope) }
+        catch { try requireToolScope(scope); throw AgentToolFailure(message: "Google refresh failed. Reconnect this Gmail account in Connections.") }
+        guard try credential(id: id, service: "gmail", scope: scope) == previous, AccountStore.shared.refreshToken(for: record, expectedScope: scope) == refresh else {
             throw AgentToolFailure(message: "Account credentials changed during refresh. Prepare a new session.")
         }
-        AccountStore.shared.updateAccessToken(token, for: record)
+        AccountStore.shared.updateAccessToken(token, for: record, expectedScope: scope)
         return token
     }
 
@@ -423,9 +529,11 @@ actor GideonAgentToolSession {
     }
 
     private func authenticatedGet(id: UUID, service: String, segments: [String], query: [(String, String)] = []) async throws -> (data: Data, token: String) {
+        try await checkScope()
+        let scope = snapshot!.scope
         for attempt in 0...1 {
             try Task.checkCancellation()
-            let token = try await Self.credential(id: id, service: service)
+            let token = try await Self.credential(id: id, service: service, scope: scope)
             guard !token.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }), token.utf8.count <= 16384 else { throw AgentToolFailure(message: "Invalid saved credential. Reconnect the account.") }
             secrets.insert(token)
             var request = URLRequest(url: try GideonAgentToolCodec.url(host: service == "github" ? "api.github.com" : "gmail.googleapis.com", segments: segments, query: query))
@@ -433,10 +541,16 @@ actor GideonAgentToolSession {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
             request.setValue(service == "github" ? "application/vnd.github+json" : "application/json", forHTTPHeaderField: "Accept")
             try Task.checkCancellation()
-            let (data, status) = try await transport.send(request)
-            try Task.checkCancellation()
+            let (data, status) = try await transport.send(request, scope: scope) {
+                guard try Self.credential(id: id, service: service, scope: scope) == token else {
+                    throw AgentToolFailure(message: "Account credentials changed before dispatch. Prepare a new session.")
+                }
+            }
+            try await checkScope()
             if status == 401, service == "gmail", attempt == 0 {
-                secrets.insert(try await Self.refresh(id: id, transport: transport)); continue
+                let refreshed = try await Self.refresh(id: id, transport: transport, scope: scope)
+                try await checkScope()
+                secrets.insert(refreshed); continue
             }
             guard (200..<300).contains(status) else {
                 let action: String
@@ -451,7 +565,7 @@ actor GideonAgentToolSession {
                 throw AgentToolFailure(message: "HTTP \(status). \(action)")
             }
             guard data.count <= GideonAgentToolCodec.bodyLimit else { throw AgentToolFailure(message: "Response exceeds the 1 MB limit.") }
-            guard try await Self.credential(id: id, service: service) == token else {
+            guard try await Self.credential(id: id, service: service, scope: scope) == token else {
                 throw AgentToolFailure(message: "Account credentials changed during the request. Prepare a new session.")
             }
             return (data, token)
@@ -459,17 +573,19 @@ actor GideonAgentToolSession {
         throw AgentToolFailure(message: "Reconnect this Gmail account in Connections.")
     }
 
-    @MainActor private static func gmailSecrets(id: UUID) throws -> Set<String> {
-        let token = try credential(id: id, service: "gmail")
+    @MainActor private static func gmailSecrets(id: UUID, scope: SessionScope) throws -> Set<String> {
+        let token = try credential(id: id, service: "gmail", scope: scope)
         guard let record = AccountStore.shared.accounts.first(where: { $0.id == id }) else {
             throw AgentToolFailure(message: "Account removed. Prepare a new session.")
         }
-        return Set([token, AccountStore.shared.refreshToken(for: record) ?? ""].filter { !$0.isEmpty })
+        return Set([token, AccountStore.shared.refreshToken(for: record, expectedScope: scope) ?? ""].filter { !$0.isEmpty })
     }
 
     private func profile(id: UUID) async throws -> (sender: String, token: String) {
-        secrets.formUnion(try await Self.gmailSecrets(id: id))
+        try await checkScope()
+        secrets.formUnion(try await Self.gmailSecrets(id: id, scope: snapshot!.scope))
         let response = try await authenticatedGet(id: id, service: "gmail", segments: ["gmail", "v1", "users", "me", "profile"])
+        try await checkScope()
         guard let object = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
               let sender = object["emailAddress"] as? String, GideonAgentToolCodec.validAddress(sender),
               !secrets.contains(where: { !$0.isEmpty && sender.contains($0) }) else {
@@ -479,10 +595,11 @@ actor GideonAgentToolSession {
     }
 
     private func prepareSend(id: UUID, args: [String: String]) async throws -> String {
+        try await checkScope()
         let recipients = try GideonAgentToolCodec.recipients(args["to"]!)
-        if let pending = pendingSend {
+        if let pending = proposal {
             guard now().timeIntervalSince(pending.preparedAt) < 15 * 60 else {
-                pendingSend = nil
+                proposal = nil
                 throw AgentToolFailure(message: "Send proposal expired. Start a new user request/session.")
             }
             guard pending.accountID == id, pending.recipients == recipients, pending.subject == args["subject"], pending.body == args["body"] else {
@@ -496,10 +613,10 @@ actor GideonAgentToolSession {
         preparingSend = true
         defer { preparingSend = false }
         let identity = try await profile(id: id)
-        try Task.checkCancellation()
+        try await checkScope()
         let pending = PendingGmailSend(id: UUID(), accountID: id, sender: identity.sender, recipients: recipients,
                                       subject: args["subject"]!, body: args["body"]!, preparedAt: now())
-        pendingSend = pending; proposalCreated = true
+        proposal = pending; proposalCreated = true
         return proposalText(pending)
     }
 
@@ -508,32 +625,43 @@ actor GideonAgentToolSession {
     }
 
     func discardPendingSend(id: UUID) {
-        if pendingSend?.id == id { pendingSend = nil }
+        if proposal?.id == id { proposal = nil }
     }
 
     /// Native UI only. Consumes approval synchronously before any suspension. NEVER retries a send POST.
     func confirmSend(id: UUID) async -> GmailSendOutcome {
-        guard let pending = pendingSend, pending.id == id else {
+        guard let pending = proposal, pending.id == id else {
             return GmailSendOutcome(status: .rejected, text: "No matching pending approval. This confirmation did not initiate a send; an earlier confirmation may still be processing. Start a new request only after checking its outcome.", messageID: nil)
         }
-        pendingSend = nil
-        func outcome(_ status: GmailSendOutcome.Status, _ text: String, messageID: String? = nil) -> GmailSendOutcome {
+        proposal = nil
+        guard let scope = snapshot?.scope, await scope.isCurrent else {
+            return GmailSendOutcome(status: .rejected, text: expiredToolSession + " No send POST was initiated.", messageID: nil)
+        }
+        func outcome(_ status: GmailSendOutcome.Status, _ text: String, messageID: String? = nil) async -> GmailSendOutcome {
             var visible = "From: \(pending.sender). To: \(pending.recipients.joined(separator: ", ")). Proposal ID: \(pending.id.uuidString). Correlation Message-ID: <\(pending.id.uuidString)@gideon.local>. \(text)"
             for secret in secrets where !secret.isEmpty { visible = visible.replacingOccurrences(of: secret, with: "[REDACTED]") }
-            return GmailSendOutcome(status: status, text: visible, messageID: messageID)
+            let sanitized = visible
+            return await MainActor.run {
+                guard scope.isCurrent else {
+                    return GmailSendOutcome(status: .unknown, text: expiredToolSession + " Check the original account's Sent folder before any retry.", messageID: nil)
+                }
+                return GmailSendOutcome(status: status, text: sanitized, messageID: messageID)
+            }
         }
         let request: URLRequest
+        let verifiedToken: String
         do {
-            try Task.checkCancellation()
+            try await checkScope()
             guard now().timeIntervalSince(pending.preparedAt) < 15 * 60 else {
                 throw AgentToolFailure(message: "Approval expired after 15 minutes. Start a new request.")
             }
             // Refresh can happen only through this safe GET, never by replaying a send.
             let identity = try await profile(id: pending.accountID)
+            try await checkScope()
             guard identity.sender == pending.sender else {
                 throw AgentToolFailure(message: "Gmail sender changed. Reconnect the intended account and start a new request.")
             }
-            guard try await Self.credential(id: pending.accountID, service: "gmail") == identity.token else {
+            guard try await Self.credential(id: pending.accountID, service: "gmail", scope: scope) == identity.token else {
                 throw AgentToolFailure(message: "Account credentials changed. Start a new request.")
             }
             guard now().timeIntervalSince(pending.preparedAt) < 15 * 60 else {
@@ -548,24 +676,37 @@ actor GideonAgentToolSession {
             post.setValue("application/json", forHTTPHeaderField: "Accept")
             post.httpBody = try JSONSerialization.data(withJSONObject: ["raw": raw])
             request = post
-            try Task.checkCancellation()
+            verifiedToken = identity.token
+            try await checkScope()
         } catch let failure as AgentToolFailure {
-            return outcome(.rejected, "Not sent: no send POST was initiated. \(failure.message)")
+            guard await scope.isCurrent else { return GmailSendOutcome(status: .rejected, text: expiredToolSession + " No send POST was initiated.", messageID: nil) }
+            return await outcome(.rejected, "Not sent: no send POST was initiated. \(failure.message)")
         } catch {
-            return outcome(.rejected, "Not sent: no send POST was initiated. Account verification failed or was cancelled. Check connectivity and reconnect the account if needed.")
+            guard await scope.isCurrent else { return GmailSendOutcome(status: .rejected, text: expiredToolSession + " No send POST was initiated.", messageID: nil) }
+            return await outcome(.rejected, "Not sent: no send POST was initiated. Account verification failed or was cancelled. Check connectivity and reconnect the account if needed.")
         }
         let uncertain = "Sending outcome unknown. Check Gmail Sent before any new attempt to avoid duplicates. The correlation Message-ID can help identify this attempt; it does not guarantee idempotency."
+        let clock = now
         do {
-            // Do not check cancellation after this await: a valid acceptance still counts.
-            let (data, status) = try await transport.send(request)
+            let (data, status) = try await transport.send(request, scope: scope) {
+                guard try Self.credential(id: pending.accountID, service: "gmail", scope: scope) == verifiedToken else {
+                    throw AgentToolFailure(message: "Account credentials changed before send dispatch.")
+                }
+                guard clock().timeIntervalSince(pending.preparedAt) < 15 * 60 else {
+                    throw AgentToolFailure(message: "Approval expired before send dispatch.")
+                }
+            }
+            // A dispatched send cannot be recalled. Never retry or expose its
+            // message ID, recipients or acceptance to a different generation.
+            guard await scope.isCurrent else { return GmailSendOutcome(status: .unknown, text: expiredToolSession + " An in-flight send may have completed. Check the original account's Sent folder; do not retry automatically.", messageID: nil) }
             if (200..<300).contains(status) {
                 guard data.count <= GideonAgentToolCodec.bodyLimit,
                       let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                       let messageID = object["id"] as? String, GideonAgentToolCodec.validGmailMessageID(messageID),
                       !secrets.contains(where: { !($0.isEmpty) && messageID.contains($0) }) else {
-                    return outcome(.unknown, uncertain)
+                    return await outcome(.unknown, uncertain)
                 }
-                return outcome(.accepted, "Gmail accepted for sending. Gmail message ID: \(messageID). Recipient delivery is not verified.", messageID: messageID)
+                return await outcome(.accepted, "Gmail accepted for sending. Gmail message ID: \(messageID). Recipient delivery is not verified.", messageID: messageID)
             }
             let action: String
             switch status {
@@ -573,11 +714,18 @@ actor GideonAgentToolSession {
             case 401: action = "Reconnect this Gmail account in Connections, then prepare a new request."
             case 403: action = "Reconnect with Gmail compose/send permission; check granted scopes and provider limits."
             case 429: action = "Gmail is rate limiting requests. Wait before preparing a new request."
-            default: return outcome(.unknown, "HTTP \(status). " + uncertain)
+            default: return await outcome(.unknown, "HTTP \(status). " + uncertain)
             }
-            return outcome(.rejected, "Gmail rejected this send (HTTP \(status)); no automatic retry. \(action)")
+            return await outcome(.rejected, "Gmail rejected this send (HTTP \(status)); no automatic retry. \(action)")
+        } catch is AgentToolNotDispatched {
+            // This error is emitted ONLY before transport invocation/resume.
+            return GmailSendOutcome(status: .rejected, text: "Not sent: no send POST was initiated. Session, credentials, cancellation or approval expiry prevented dispatch. Start a new request.", messageID: nil)
+        } catch let failure as AgentToolFailure {
+            guard await scope.isCurrent else { return GmailSendOutcome(status: .unknown, text: expiredToolSession + " Check the original account's Sent folder before retrying.", messageID: nil) }
+            return await outcome(.unknown, failure.message + " " + uncertain)
         } catch {
-            return outcome(.unknown, uncertain)
+            guard await scope.isCurrent else { return GmailSendOutcome(status: .unknown, text: expiredToolSession + " Check the original account's Sent folder before retrying.", messageID: nil) }
+            return await outcome(.unknown, uncertain)
         }
     }
 
@@ -586,7 +734,7 @@ actor GideonAgentToolSession {
         if name == "project_read" {
             guard let id = UUID(uuidString: args["id"]!), snapshot.projectIDs.contains(id) else { throw AgentToolFailure(message: "Project is not in the prepared index.") }
             return try await MainActor.run {
-                try Task.checkCancellation()
+                try requireToolScope(snapshot.scope)
                 guard let project = AppProjectStore.shared.projects.first(where: { $0.id == id }) else { throw AgentToolFailure(message: "Project no longer exists.") }
                 var linked: [[String: Any]] = [], total = 0
                 for item in AppActivityStore.shared.items {
@@ -620,6 +768,7 @@ actor GideonAgentToolSession {
             else { query = [("maxResults", "5"), ("q", args["query"] ?? "in:inbox")] }
         }
         let data = try await get(id: id, service: service, segments: segments, query: query)
+        try await checkScope()
         let object = try JSONSerialization.jsonObject(with: data)
         try Task.checkCancellation()
         if name == "github_contents" { return try GideonAgentToolCodec.contents(object) }
@@ -631,6 +780,7 @@ actor GideonAgentToolSession {
                 guard let messageID = message["id"] as? String else { throw AgentToolFailure(message: "Invalid Gmail message ID.") }
                 _ = try GideonAgentToolCodec.arguments(RemoteToolCall(id: "", name: "gmail_read", argumentsJSON: GideonAgentToolCodec.json(["account_id": id.uuidString, "message_id": messageID])))
                 let detail = try await get(id: id, service: service, segments: segments + [messageID], query: [("format", "metadata")] + ["From", "To", "Subject", "Date"].map { ("metadataHeaders", $0) })
+                try await checkScope()
                 guard let metadata = try JSONSerialization.jsonObject(with: detail) as? [String: Any] else { throw AgentToolFailure(message: "Invalid Gmail metadata.") }
                 messages.append(GideonAgentToolCodec.metadata(metadata))
             }

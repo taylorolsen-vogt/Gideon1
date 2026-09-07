@@ -3,6 +3,25 @@ import Synchronization
 
 // Standalone runner: compile with GideonAgentTools.swift and RemoteGideonRuntime.swift only.
 // Store fixtures intentionally mirror the live MainActor interfaces; no UI or real credentials.
+struct SessionScope: Equatable, Sendable {
+    let userID: String?
+    let mode: String
+    let generation: UUID
+    @MainActor static var current: SessionScope { SessionIsolation.current }
+    @MainActor var isCurrent: Bool { self == Self.current && !Task.isCancelled }
+    var canSyncCloud: Bool { userID != nil && mode == "cloud" }
+    func key(_ base: String) -> String {
+        let owner = userID.map { "user." + Data($0.lowercased().utf8).base64EncodedString() } ?? "signed-out"
+        return "gideon.scoped.v1.\(owner).\(base)"
+    }
+}
+@MainActor enum SessionIsolation {
+    private(set) static var current = SessionScope(userID: nil, mode: "cloud", generation: UUID())
+    static func activate(userID: String?, mode: String) {
+        current = SessionScope(userID: userID?.lowercased(), mode: mode, generation: UUID())
+    }
+}
+
 struct HarnessTurn: Sendable {
     enum Role: Sendable { case user, assistant }
     let role: Role
@@ -19,9 +38,18 @@ struct AccountRecord: Sendable {
     var accounts: [AccountRecord] = []
     var tokens: [UUID: String] = [:]
     var refreshTokens: [UUID: String] = [:]
-    func apiKey(for record: AccountRecord) -> String? { tokens[record.id] }
-    func refreshToken(for record: AccountRecord) -> String? { refreshTokens[record.id] }
-    func updateAccessToken(_ token: String, for record: AccountRecord) { tokens[record.id] = token }
+    func apiKey(for record: AccountRecord, expectedScope: SessionScope? = nil) -> String? {
+        guard (expectedScope ?? .current).isCurrent else { return nil }
+        return tokens[record.id]
+    }
+    func refreshToken(for record: AccountRecord, expectedScope: SessionScope? = nil) -> String? {
+        guard (expectedScope ?? .current).isCurrent else { return nil }
+        return refreshTokens[record.id]
+    }
+    func updateAccessToken(_ token: String, for record: AccountRecord, expectedScope: SessionScope? = nil) {
+        guard (expectedScope ?? .current).isCurrent else { return }
+        tokens[record.id] = token
+    }
 }
 enum ProjectStage: String { case active }
 struct ProjectRecord {
@@ -131,7 +159,8 @@ private actor Gate {
         try await sendAccountChecks()
         try await sendHTTPOutcomes()
         try await sendConcurrency()
-        print("GideonAgentTools: \(assertions.withLock { $0 }) assertions passed across 8 suites; 9 tool definitions; mocked network only")
+        try await generationFencing()
+        print("GideonAgentTools: \(assertions.withLock { $0 }) assertions passed across 9 suites; 9 tool definitions; mocked network only")
     }
 
     static func validators() throws {
@@ -229,6 +258,7 @@ private actor Gate {
     }
 
     @MainActor private static func sendFixture(subject: String = benchmark, body: String = benchmark) async throws -> SendFixture {
+        SessionIsolation.activate(userID: "user-a", mode: "cloud")
         let account = AccountRecord(id: UUID(), service: "Gmail", name: "not.the.sender@example.com")
         AccountStore.shared.accounts = [account]
         AccountStore.shared.tokens = [account.id: "ACCESS-SECRET"]
@@ -574,7 +604,7 @@ private actor Gate {
         sending.cancel()
         await postGate.release()
         let outcome = await sending.value
-        try expect(outcome.status == .accepted, "Valid 2xx acceptance retained even if task cancelled during POST")
+        try expect(outcome.status == .unknown && outcome.messageID == nil && !outcome.text.contains(sender), "Cancelled task suppresses acceptance details; dispatched send is not recalled or retried")
 
         let preparing = try await sendFixture(), preparationGate = Gate()
         let session = GideonAgentToolSession(transport: await preparing.network.transport)
@@ -689,6 +719,125 @@ private actor Gate {
         let unsupported = GideonAgentToolSession(transport: await network.transport)
         let localOnly = await unsupported.prepare()
         try expect(localOnly.definitions.map(\.name) == ["projects_list", "project_read"], "Unsupported accounts create no fake remote capabilities")
+    }
+
+    @MainActor static func generationFencing() async throws {
+        // Preserve account UUIDs/tokens deliberately: equality of credentials or
+        // user IDs must not accidentally revive a previous login's authority.
+        for transition in ["identity", "aba", "relogin", "mode", "logout"] {
+            let f = try await sendFixture()
+            let old = SessionScope.current
+            switch transition {
+            case "identity": SessionIsolation.activate(userID: "user-b", mode: "cloud")
+            case "aba":
+                SessionIsolation.activate(userID: "user-b", mode: "cloud")
+                SessionIsolation.activate(userID: "user-a", mode: "cloud")
+            case "mode": SessionIsolation.activate(userID: "user-a", mode: "local")
+            case "logout": SessionIsolation.activate(userID: nil, mode: "cloud")
+            default: SessionIsolation.activate(userID: "user-a", mode: "cloud")
+            }
+            try expect(!old.isCurrent, "Full generation invalidated: \(transition)")
+            AppActivityStore.shared.items = []
+            await f.network.install([])
+            // Confirm before reading pendingSend, so rejection cannot depend on
+            // the UI having first cleared a stale proposal.
+            let confirmation = await f.session.confirmSend(id: f.pending.id)
+            let context = await f.session.prepare()
+            let read = await f.session.execute(call("projects_list"))
+            let prepare = await f.session.execute(call("gmail_prepare_send", sendArgs(f.account.id)))
+            let pending = await f.session.pendingSend
+            let requests = await f.network.requests
+            try expect(confirmation.status == .rejected && confirmation.messageID == nil && !confirmation.text.contains(sender), "Old approval cannot send or reveal sender: \(transition)")
+            try expect(context.definitions.isEmpty && !context.systemContext.contains(f.account.id.uuidString), "Reprepare cannot rebind old snapshot: \(transition)")
+            try expect(read.contains("session") && prepare.contains("session") && pending == nil, "Stale reads and proposals fenced: \(transition)")
+            try expect(requests.isEmpty && AppActivityStore.shared.items.isEmpty, "Old tasks cannot dispatch or audit under new scope: \(transition)")
+        }
+
+        // Separate prepare/execute boundary, without any existing proposal.
+        let f = try await sendFixture()
+        let session = GideonAgentToolSession(transport: await f.network.transport)
+        _ = await session.prepare()
+        SessionIsolation.activate(userID: "user-b", mode: "cloud")
+        AppActivityStore.shared.items = []
+        await f.network.install([])
+        let stale = await session.execute(call("gmail_prepare_send", sendArgs(f.account.id)))
+        let staleRequests = await f.network.requests
+        try expect(stale.contains("session") && staleRequests.isEmpty && AppActivityStore.shared.items.isEmpty, "Identity switch between prepare and first execution")
+
+        // Changes during initial profile, 401 response, OAuth refresh, inbox
+        // listing, confirmation profile, and already-dispatched send.
+        for phase in ["prepareProfile", "profile401", "refresh", "inbox", "confirmProfile", "post", "postFailure"] {
+            let fixture = try await sendFixture(), gate = Gate()
+            let preparing = ["prepareProfile", "profile401", "refresh", "inbox"].contains(phase)
+            let active: GideonAgentToolSession
+            if preparing {
+                active = GideonAgentToolSession(transport: await fixture.network.transport)
+                _ = await active.prepare()
+            } else { active = fixture.session }
+            if phase == "refresh" {
+                await fixture.network.install([(Data(), 401), (try data(["access_token": "STALE-REFRESH-SECRET"]), 200)])
+            } else if phase == "profile401" {
+                await fixture.network.install([(Data(), 401)])
+            } else if phase == "inbox" {
+                await fixture.network.install([(try data(["messages": [["id": "old-message"]]]), 200)])
+            } else if phase.hasPrefix("post") {
+                await fixture.network.install([(try profileData(), 200), (try data(["id": "old-private-message-id"]), 200)])
+                if phase == "postFailure" { await fixture.network.fail(at: 2, code: .networkConnectionLost) }
+            } else {
+                await fixture.network.install([(try profileData(), 200)])
+            }
+            await fixture.network.setHook { request in
+                let shouldPause = phase == "refresh" ? request.url?.host == "oauth2.googleapis.com"
+                    : phase.hasPrefix("post") ? request.httpMethod == "POST" : true
+                if shouldPause { await gate.pause() }
+            }
+            let task = Task { () -> (String, GmailSendOutcome.Status?) in
+                if preparing {
+                    let request = phase == "inbox" ? call("gmail_inbox", ["account_id": fixture.account.id.uuidString])
+                        : call("gmail_prepare_send", sendArgs(fixture.account.id))
+                    return (await active.execute(request), nil)
+                }
+                let outcome = await active.confirmSend(id: fixture.pending.id)
+                try expect(outcome.messageID == nil, "No old message ID published: \(phase)")
+                return (outcome.text, outcome.status)
+            }
+            await gate.waitUntilEntered()
+            SessionIsolation.activate(userID: "user-b", mode: "cloud")
+            SessionIsolation.activate(userID: "user-a", mode: "cloud")
+            AppActivityStore.shared.items = []
+            // Refresh deliberately retains identical credentials: token equality
+            // alone would accept this stale response after A -> B -> A.
+            let currentToken = phase == "refresh" ? "ACCESS-SECRET" : "NEW-OWNER-SECRET"
+            AccountStore.shared.tokens[fixture.account.id] = currentToken
+            await gate.release()
+            let (text, status) = try await task.value
+            let requests = await fixture.network.requests
+            let pending = await active.pendingSend
+            let expectedCount = phase == "refresh" || phase.hasPrefix("post") ? 2 : 1
+            try expect(requests.count == expectedCount, "No follow-up requests after generation change: \(phase)")
+            try expect(AppActivityStore.shared.items.isEmpty && pending == nil, "No old proposal or new-user audit: \(phase)")
+            try expect(AccountStore.shared.tokens[fixture.account.id] == currentToken, "Stale refresh cannot overwrite new-owner credentials: \(phase)")
+            try expect(!text.contains(sender) && !text.contains("old-private-message-id") && !text.contains("SECRET"), "Stale result sanitized: \(phase)")
+            if phase.hasPrefix("post") {
+                try expect(status == .unknown, "Already-dispatched send never claimed recalled or accepted for new user")
+                _ = await active.confirmSend(id: fixture.pending.id)
+                let afterRetry = await fixture.network.requests
+                try expect(afterRetry.count == 2, "Old send cannot be retried")
+            } else if !preparing { try expect(status == .rejected, "Changed confirmation profile prevents POST") }
+        }
+
+        // Exercise the final transport boundary independently of preflight.
+        SessionIsolation.activate(userID: "user-a", mode: "cloud")
+        let old = SessionScope.current, network = Network()
+        let transport = await network.transport
+        SessionIsolation.activate(userID: "user-a", mode: "cloud")
+        do {
+            _ = try await transport.send(URLRequest(url: URL(string: "https://gmail.googleapis.com/gmail/v1/users/me/messages/send")!), scope: old)
+            throw Failure(message: "Stale scope authorized final dispatch")
+        } catch is Failure { throw Failure(message: "Final dispatch fence failed") }
+        catch { /* Expected scope rejection, not a mock network failure. */ }
+        let finalRequests = await network.requests
+        try expect(finalRequests.isEmpty, "Last MainActor authorization rejects stale generation before transport dispatch")
     }
 
 }

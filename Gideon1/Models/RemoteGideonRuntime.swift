@@ -1,5 +1,18 @@
 import Foundation
 
+/// Provider authentication must come only from the current request, never a previous user's session state.
+enum ProviderNetworkSession {
+    static func makeConfiguration() -> URLSessionConfiguration {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.httpShouldSetCookies = false
+        configuration.httpCookieStorage = nil
+        configuration.urlCredentialStorage = nil
+        configuration.urlCache = nil
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        return configuration
+    }
+}
+
 struct RemoteToolDefinition: Sendable {
     let name: String
     let description: String
@@ -22,6 +35,8 @@ struct RemoteGideonRequestContext {
     let history: [HarnessTurn]
     var systemInstruction: String = ""
     var tools: [RemoteToolDefinition] = []
+    // Native lifecycle fence only; never serialized into provider/model context.
+    var isRequestValid: @Sendable () async -> Bool = { true }
 }
 
 actor RemoteGideonRuntime {
@@ -32,7 +47,7 @@ actor RemoteGideonRuntime {
     private static let maxToolCalls = 8
     private static let maxToolResultCharacters = 8_000
 
-    init(session: URLSession = .shared) {
+    init(session: URLSession = URLSession(configuration: ProviderNetworkSession.makeConfiguration())) {
         self.session = session
     }
 
@@ -92,15 +107,16 @@ actor RemoteGideonRuntime {
         }
 
         do {
-            try Task.checkCancellation()
+            try await checkRequestValidity(context)
             var definitions = try toolDefinitions(context.tools)
             let allowedNames = Set(context.tools.map(\.name))
             while true {
                 try Task.checkCancellation()
                 let request = try buildRequest(context: context, style: style, model: model,
                                                conversation: conversation, definitions: definitions)
+                try await checkRequestValidity(context)
                 let (data, response) = try await session.data(for: request)
-                try Task.checkCancellation()
+                try await checkRequestValidity(context)
                 guard let http = response as? HTTPURLResponse else { throw RuntimeFailure.malformedResponse }
                 guard (200..<300).contains(http.statusCode) else {
                     // A single text-only recovery is safe only before any tool execution.
@@ -117,6 +133,7 @@ actor RemoteGideonRuntime {
                     if toolRounds == 0, isMissingModel(status: http.statusCode, data: data), fallbackAttempts < 5 {
                         if !discovered {
                             alternatives = try await discoverModels(context: context, style: style, preferred: model)
+                            try await checkRequestValidity(context)
                             discovered = true
                         }
                         if !alternatives.isEmpty {
@@ -164,8 +181,9 @@ actor RemoteGideonRuntime {
                             text = "Tool error: arguments must be a valid JSON object; not executed."
                             isError = true
                         } else if let executeTool {
+                            try await checkRequestValidity(context)
                             text = await executeTool(call)
-                            try Task.checkCancellation()
+                            try await checkRequestValidity(context)
                             isError = false // The nonthrowing executor owns its application-level error format.
                         } else {
                             text = "Tool error: no executor is available; not executed."
@@ -196,20 +214,34 @@ actor RemoteGideonRuntime {
             }
         } catch is CancellationError {
             return "Request cancelled."
-        } catch let error as URLError {
-            if Task.isCancelled || error.code == .cancelled { return "Request cancelled." }
-            if error.code == .timedOut { return "Provider request timed out. Try again later; completed actions were not retried." }
-            return "Could not connect to the provider. Check your connection and endpoint settings. Completed actions were not retried."
-        } catch let error as DiscoveryFailure {
-            return error.message
-        } catch RuntimeFailure.invalidTools {
-            return "Could not build provider request: tool names must be unique and parameters must be JSON object schemas."
-        } catch RuntimeFailure.invalidRoute {
-            return "Could not build provider request: check the endpoint and model identifier."
         } catch {
-            if Task.isCancelled { return "Request cancelled." }
-            return "Provider returned an invalid response or request schema. No automatic action retry was performed."
+            // A throwing await also needs a fence before publishing diagnostics.
+            do { try await checkRequestValidity(context) }
+            catch { return "Request cancelled." }
+            switch error {
+            case let error as URLError:
+                if error.code == .cancelled { return "Request cancelled." }
+                if error.code == .timedOut { return "Provider request timed out. Try again later; completed actions were not retried." }
+                return "Could not connect to the provider. Check your connection and endpoint settings. Completed actions were not retried."
+            case let error as DiscoveryFailure:
+                return error.message
+            case RuntimeFailure.invalidTools:
+                return "Could not build provider request: tool names must be unique and parameters must be JSON object schemas."
+            case RuntimeFailure.invalidRoute:
+                return "Could not build provider request: check the endpoint and model identifier."
+            default:
+                return "Provider returned an invalid response or request schema. No automatic action retry was performed."
+            }
         }
+    }
+
+    private func checkRequestValidity(_ context: RemoteGideonRequestContext) async throws {
+        try Task.checkCancellation()
+        let valid = await context.isRequestValid()
+        try Task.checkCancellation()
+        guard valid else { throw CancellationError() }
+        // This is the strongest async dispatch fence, not an atomic scope/URLSession
+        // transaction: a scope change can still race the subsequent actor hop.
     }
 
     private func buildRequest(context: RemoteGideonRequestContext, style: ProviderProtocol, model: String,
@@ -493,8 +525,9 @@ actor RemoteGideonRuntime {
             guard let url = components.url else { break }
             var request = authenticatedRequest(url: url, context: context, style: style)
             request.httpMethod = "GET"
+            try await checkRequestValidity(context)
             let (data, response) = try await session.data(for: request)
-            try Task.checkCancellation()
+            try await checkRequestValidity(context)
             guard let http = response as? HTTPURLResponse else { throw RuntimeFailure.malformedResponse }
             guard (200..<300).contains(http.statusCode) else {
                 throw DiscoveryFailure(message: httpError(status: http.statusCode, data: data))

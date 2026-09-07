@@ -130,6 +130,33 @@ private actor Latch {
     }
 }
 
+/// Synchronous invalidation inside a mocked network response, with async checks
+/// on MainActor like the harness. No timing sleeps or live networking are needed.
+private final class RequestValidity: @unchecked Sendable {
+    private let lock = NSLock()
+    private var current = true
+    private var checks = 0
+    private let invalidAtCheck: Int?
+
+    init(invalidAtCheck: Int? = nil) { self.invalidAtCheck = invalidAtCheck }
+
+    func invalidate() {
+        lock.lock(); defer { lock.unlock() }
+        current = false
+    }
+
+    func check() -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        checks += 1
+        if checks == invalidAtCheck { current = false }
+        return current
+    }
+
+    var callback: @Sendable () async -> Bool {
+        { await MainActor.run { self.check() } }
+    }
+}
+
 @main
 private struct RemoteRuntimeTests {
     static let fakeKey = "unit-test-key-NOT-A-REAL-CREDENTIAL"
@@ -210,6 +237,25 @@ private struct RemoteRuntimeTests {
         if provider == "OpenAI" { return message["content"] as? String ?? "" }
         return (message[provider == "Gemini" ? "parts" : "content"] as? [[String: Any]] ?? [])
             .compactMap { $0["text"] as? String }.joined(separator: "\n")
+    }
+
+    static func defaultSessionIsolation() async throws {
+        // Inspect the same nonsecret configuration factory used by both production consumers.
+        // No shared cookie jar or credential store is read or modified by this regression.
+        let configuration = ProviderNetworkSession.makeConfiguration()
+        let network = URLSession(configuration: configuration)
+        defer { network.invalidateAndCancel() }
+        for config in [configuration, network.configuration] {
+            try expect(!config.httpShouldSetCookies, "Automatic cookies must be disabled")
+            try expect(config.httpCookieStorage == nil, "No cookie storage across users")
+            try expect(config.urlCredentialStorage == nil, "No implicit credential storage across users")
+            try expect(config.urlCache == nil, "No cached provider responses across users")
+            try expect(config.requestCachePolicy == .reloadIgnoringLocalCacheData, "Bypass local response caches")
+            try expect(config.identifier == nil, "Not a persistent background session")
+        }
+        configuration.httpShouldSetCookies = true
+        let fresh = ProviderNetworkSession.makeConfiguration()
+        try expect(fresh !== configuration && !fresh.httpShouldSetCookies, "Each caller gets an independent hardened configuration")
     }
 
     static func schemasAndHistory() async throws {
@@ -653,6 +699,173 @@ private struct RemoteRuntimeTests {
         executing.invalidateAndCancel()
     }
 
+    static func invalidationBeforeInitialRequest() async throws {
+        // Check 1 is entry; check 2 is the final fence after request construction.
+        for invalidAtCheck in [1, 2] {
+            let validity = RequestValidity(invalidAtCheck: invalidAtCheck)
+            let network = session { _, _ in throw TestFailure(description: "Invalid request must not dispatch") }
+            defer { network.invalidateAndCancel() }
+            var input = context()
+            input.isRequestValid = validity.callback
+            let result = await RemoteGideonRuntime(session: network).generateReply(context: input)
+            try expect(result == "Request cancelled.", "Invalidation before initial dispatch")
+            _ = try assertRequests(0)
+        }
+
+        // Cancellation while the async callback is suspended must be rechecked,
+        // even if the callback itself returns true.
+        let entered = Latch(), release = Latch()
+        let network = session { _, _ in throw TestFailure(description: "Cancelled validity await must not dispatch") }
+        defer { network.invalidateAndCancel() }
+        let runtime = RemoteGideonRuntime(session: network)
+        var input = context()
+        input.isRequestValid = {
+            await entered.open()
+            await release.wait()
+            return true
+        }
+        let captured = input
+        let task = Task { await runtime.generateReply(context: captured) }
+        await entered.wait()
+        task.cancel()
+        await release.open()
+        let result = await task.value
+        try expect(result == "Request cancelled.", "Cancellation after validity callback await")
+        _ = try assertRequests(0)
+    }
+
+    static func invalidationDuringGeneration() async throws {
+        for provider in providers {
+            for response in ["tools", "text", "missing model", "unsupported tools", "network error"] {
+                let validity = RequestValidity()
+                let recorder = Recorder()
+                let network = session { _, index in
+                    try expect(index == 0, "Invalidation must prevent followup, discovery, and retry")
+                    validity.invalidate()
+                    switch response {
+                    case "tools": return try MockReply(toolReply(provider, count: 2))
+                    case "text": return try MockReply(finalReply(provider, text: "Stale account response"))
+                    case "missing model": return try MockReply(missingModel(), status: 404)
+                    case "unsupported tools":
+                        return try MockReply(["error": ["message": "This model does not support tools"]], status: 400)
+                    default: throw URLError(.timedOut)
+                    }
+                }
+                defer { network.invalidateAndCancel() }
+                var input = context(provider)
+                input.isRequestValid = validity.callback
+                let result = await RemoteGideonRuntime(session: network).generateReply(context: input) {
+                    await recorder.execute($0)
+                }
+                try expect(result == "Request cancelled.", "Discard stale \(provider) \(response)")
+                let calls = await recorder.snapshot()
+                try expect(calls.isEmpty, "Invalidated generation cannot execute tools")
+                _ = try assertRequests(1)
+            }
+        }
+    }
+
+    static func discoveryReply(_ provider: String, morePages: Bool) throws -> MockReply {
+        if provider == "Gemini" {
+            var reply: [String: Any] = ["models": [["name": "models/gemini-new", "supportedGenerationMethods": ["generateContent"]]]]
+            if morePages { reply["nextPageToken"] = "next-page" }
+            return try MockReply(reply)
+        }
+        return try MockReply(["data": [["id": provider == "Anthropic" ? "claude-new" : "gpt-new"]],
+                              "has_more": morePages, "last_id": "next-page"])
+    }
+
+    static func invalidationDuringDiscovery() async throws {
+        for provider in providers {
+            for response in ["more pages", "last page", "network error", "HTTP error"] {
+                let validity = RequestValidity()
+                let recorder = Recorder()
+                let network = session { request, index in
+                    if index == 0 { return try MockReply(missingModel(), status: 404) }
+                    try expect(index == 1 && request.httpMethod == "GET", "No discovery pages or retries after invalidation")
+                    validity.invalidate()
+                    if response == "network error" { throw URLError(.timedOut) }
+                    if response == "HTTP error" { return try MockReply(["error": ["message": "quota"]], status: 429) }
+                    return try discoveryReply(provider, morePages: response == "more pages")
+                }
+                defer { network.invalidateAndCancel() }
+                var input = context(provider)
+                input.isRequestValid = validity.callback
+                let result = await RemoteGideonRuntime(session: network).generateReply(context: input) {
+                    await recorder.execute($0)
+                }
+                try expect(result == "Request cancelled.", "Discard stale \(provider) discovery \(response)")
+                let calls = await recorder.snapshot()
+                try expect(calls.isEmpty, "Invalidated discovery cannot execute tools")
+                _ = try assertRequests(2)
+            }
+        }
+    }
+
+    static func invalidationAtDispatchBoundaries() async throws {
+        // Invalidate only after earlier post-await checks succeeded. This tests
+        // the separate final fence, not just dropping an in-flight response.
+        // Checks: entry=1, initial dispatch=2, generation response=3,
+        // discovery dispatch=4, discovery response=5, discovery return=6,
+        // fallback dispatch=7 (or next page dispatch=6 when paginating).
+        let cases: [(String, Int, Int)] = [
+            ("tool dispatch", 4, 1), ("text-only retry", 4, 1),
+            ("discovery dispatch", 4, 1), ("next page", 6, 2),
+            ("discovery return", 6, 2), ("fallback retry", 7, 2)
+        ]
+        for provider in providers {
+            for (boundary, check, expectedRequests) in cases {
+                if provider == "OpenAI" && boundary == "next page" { continue }
+                let validity = RequestValidity(invalidAtCheck: check)
+                let recorder = Recorder()
+                let network = session { request, index in
+                    try expect(index < expectedRequests, "No late request at \(boundary)")
+                    if request.httpMethod == "GET" {
+                        return try discoveryReply(provider, morePages: boundary == "next page")
+                    }
+                    if boundary == "tool dispatch" { return try MockReply(toolReply(provider)) }
+                    if boundary == "text-only retry" {
+                        return try MockReply(["error": ["message": "This model does not support tools"]], status: 400)
+                    }
+                    return try MockReply(missingModel(), status: 404)
+                }
+                defer { network.invalidateAndCancel() }
+                var input = context(provider)
+                input.isRequestValid = validity.callback
+                let result = await RemoteGideonRuntime(session: network).generateReply(context: input) {
+                    await recorder.execute($0)
+                }
+                try expect(result == "Request cancelled.", "Fence \(provider) \(boundary)")
+                let calls = await recorder.snapshot()
+                try expect(calls.isEmpty, "No late tool dispatch")
+                _ = try assertRequests(expectedRequests)
+            }
+        }
+    }
+
+    static func invalidationDuringToolExecution() async throws {
+        for provider in providers {
+            let validity = RequestValidity()
+            let recorder = Recorder()
+            let network = session { _, index in
+                try expect(index == 0, "No followup after tool invalidation")
+                return try MockReply(toolReply(provider, count: 2))
+            }
+            defer { network.invalidateAndCancel() }
+            var input = context(provider)
+            input.isRequestValid = validity.callback
+            let result = await RemoteGideonRuntime(session: network).generateReply(context: input) { call in
+                let text = await recorder.execute(call)
+                validity.invalidate()
+                return text
+            }
+            try expect(result == "Request cancelled.", "Fence executor return for \(provider)")
+            let calls = await recorder.snapshot()
+            try expect(calls.count == 1, "No second tool or followup after scope changes")
+            _ = try assertRequests(1)
+        }
+    }
+
     static func defaultsAndInvalidSchemas() async throws {
         for provider in providers {
             let network = session { _, _ in try MockReply(finalReply(provider)) }
@@ -723,6 +936,7 @@ private struct RemoteRuntimeTests {
 
     static func main() async {
         let tests: [(String, () async throws -> Void)] = [
+            ("default sessions disable cookies, credential storage, and caching", defaultSessionIsolation),
             ("schemas, shared instructions, and bounded history", schemasAndHistory),
             ("native multi-step roundtrips for all providers", nativeRoundTrips),
             ("six-round and eight-call limits", toolLimits),
@@ -736,6 +950,11 @@ private struct RemoteRuntimeTests {
             ("Anthropic and OpenAI fallback", otherProviderFallbacks),
             ("no model fallback after tool execution", noFallbackAfterExecution),
             ("cancellation before, during network, and during executor", cancellation),
+            ("scope invalidation before initial request and cancellation during validity await", invalidationBeforeInitialRequest),
+            ("scope invalidation during generation suppresses tools, responses, and retries", invalidationDuringGeneration),
+            ("scope invalidation during discovery stops pagination and fallback", invalidationDuringDiscovery),
+            ("async validity fences immediately before tool, page, and retry dispatch", invalidationAtDispatchBoundaries),
+            ("scope invalidation during tool execution stops batch and followup", invalidationDuringToolExecution),
             ("default API and invalid tool schemas", defaultsAndInvalidSchemas),
             ("nullable calls, reasoning parameters and text-only models", compatibility)
         ]
