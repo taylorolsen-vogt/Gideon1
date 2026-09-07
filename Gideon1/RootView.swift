@@ -70,19 +70,6 @@ final class AppSessionStore: ObservableObject {
     private let userKey: String
     private let notificationCenter: NotificationCenter
     private var authOperation: UUID?
-    private static let seenUsersKey = "gideon.session.seenUsers.v1"
-    private static let blankSlateScopedKeys = [
-        "gideon.accounts.v1",
-        "gideon.projects.v2",
-        "gideon.activity.v2",
-        "gideon.providerConnections.v1",
-        "gideon.selectedModelID",
-        "gideon.maxNewTokens",
-        "gideon.reasoningMode",
-        "gideon.apiProviders.v1",
-        "gideon.chatSessions.v2",
-        "gideon.chatSessions.selected.v1"
-    ]
 
     private struct AuthAttempt {
         let id: UUID
@@ -156,66 +143,6 @@ final class AppSessionStore: ObservableObject {
         }
     }
 
-    private func applyFirstLoginBlankSlateIfNeeded(for userID: String) async {
-        let normalizedUserID = userID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !normalizedUserID.isEmpty else { return }
-        var seenUsers = Set(defaults.stringArray(forKey: Self.seenUsersKey) ?? [])
-        let isFirstSeen = !seenUsers.contains(normalizedUserID)
-        if isFirstSeen {
-            for key in Self.blankSlateScopedKeys {
-                ScopedDefaults.standard.removeObject(forKey: key)
-            }
-            let scope = SessionScope.current
-            if scope.canSyncCloud {
-                await purgeCloudStateForCurrentUser(scope: scope)
-                guard scope.isCurrent else { return }
-            }
-            seenUsers.insert(normalizedUserID)
-            defaults.set(Array(seenUsers).sorted(), forKey: Self.seenUsersKey)
-        }
-    }
-
-    private func purgeCloudStateForCurrentUser(scope: SessionScope) async {
-        guard scope.isCurrent, scope.canSyncCloud else { return }
-
-        for table in [
-            "activity_items",
-            "projects",
-            "accounts",
-            "provider_connections",
-            "chat_sessions",
-            "user_model_preferences"
-        ] {
-            await deleteCloudRows(table: table, scope: scope)
-            guard scope.isCurrent else { return }
-        }
-
-        await CloudCredentialStore.shared.purgeAll(expectedScope: scope)
-    }
-
-    private func deleteCloudRows(table: String, scope: SessionScope) async {
-        guard scope.isCurrent,
-              let userID = scope.userID,
-              let token = currentAccessToken,
-              var components = URLComponents(string: "\(Self.supabaseRESTURL)/\(table)") else {
-            return
-        }
-
-        components.queryItems = [
-            URLQueryItem(name: "user_id", value: "eq.\(userID)")
-        ]
-
-        guard let url = components.url else { return }
-        var request = URLRequest(url: url)
-        request.httpMethod = "DELETE"
-        request.timeoutInterval = 30
-        request.setValue(Self.supabasePublishableKey, forHTTPHeaderField: "apikey")
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        request.setValue("return=minimal", forHTTPHeaderField: "Prefer")
-        _ = try? await session.data(for: request)
-        guard scope.isCurrent else { return }
-    }
-
     func login(email: String, password: String) async {
         guard let attempt = beginAuthentication() else { return }
         defer { finishAuthentication(attempt) }
@@ -270,7 +197,6 @@ final class AppSessionStore: ObservableObject {
             }
 
             SessionIsolation.activate(userID: decoded.user.id, mode: attempt.scope.mode)
-            await applyFirstLoginBlankSlateIfNeeded(for: decoded.user.id)
             guard canComplete(attempt) else { return }
             currentUser = decoded.user
             isAuthenticated = true
@@ -331,7 +257,6 @@ final class AppSessionStore: ObservableObject {
                     defaults.set(userData, forKey: userKey)
                 }
                 SessionIsolation.activate(userID: decoded.user.id, mode: attempt.scope.mode)
-                await applyFirstLoginBlankSlateIfNeeded(for: decoded.user.id)
                 guard canComplete(attempt) else { return }
                 currentUser = decoded.user
                 isAuthenticated = true
