@@ -4,7 +4,7 @@ Last reviewed: 2026-09-05
 
 ## How we use this document
 
-This is our single working list of what Gideon does, what needs work, and ideas worth keeping. **An idea recorded here is not an instruction to implement it.** Choose one small task together before starting development; keep unrelated ideas in the backlog.
+This is our single working list of what Gideon does, what needs work, and ideas worth keeping. **An idea recorded here is not an instruction to implement it.** The user authorized iterative building and testing on 2026-09-05, with human involvement for credentials, permissions, and external actions. Work in validated milestones; do not interpret this as permission for arbitrary purchases, deployments, or repository writes.
 
 - Distinguish **implemented**, **user-verified**, **setup only**, and **planned**.
 - A saved credential or a “Connected” label does not prove a tool exists or an action is permitted.
@@ -13,9 +13,25 @@ This is our single working list of what Gideon does, what needs work, and ideas 
 
 ## Current focus
 
-**Now: organize the plan only.** No activity UI changes, new integrations, or permission changes are authorized by creating this document.
+**Now: trustworthy account boundaries and regression tests.** User-scoped local caches/Keychain bindings, generation-fenced async work, approvals, connection forms, model requests, and authentication completions are implemented. See validation and remaining gates below. No new external permissions have been granted.
 
 **Proposed next milestone: enable Gideon to make a small, reviewable change to Aqua without granting access to other private repositories.** This requires both appropriately scoped GitHub authorization and working write tools; permission changes alone are insufficient.
+
+### Long-term direction
+
+Gideon is for anyone who needs a goal carried out, not only developers or entrepreneurs. Aqua is the first proving ground, not the product boundary. Future examples include approved grocery ordering, travel planning, and eventually robotics/physical systems. Keep identity, permissions, plans, approvals, execution, and evidence reusable. Purchasing needs explicit cost/payment/recipient approval; physical actions need separate hardware safety controls. These examples are direction, not current capabilities or assignments.
+
+### Account isolation milestone — 2026-09-05
+
+- Implemented owner-scoped accounts, projects, activity, chats, model settings, connection metadata, agent/group metadata, and credential bindings.
+- Session generations invalidate old tasks and approvals, including A → B → A and same-user re-login. Late login/signup responses cannot resurrect a logged-out session. Provider inference/discovery do not share cookies, cached credentials, or HTTP caches.
+- Legacy unscoped defaults and Keychain entries remain untouched and are **not automatically claimed by any login**. Cloud-owned records/secrets can restore into the correct namespace. Local-only legacy recovery still needs an explicit ownership/recovery design; do not delete/reinstall to recover missing data.
+- Unsafe legacy GitHub issue creation and Gmail draft commands are disabled pending an approved-action implementation; native email review/confirmation remains available.
+- Verified: 13 hosted simulator tests of production stores/authentication passed; 21 mocked provider test groups passed; 1,158 mocked tool assertions passed; 18 standalone namespace checks passed. Signed simulator app compiled. Tests use synthetic identities/credentials, not live test logins.
+- Interactive UI check: the signed-in Messages screen rendered on iPhone 17 Pro / iOS 26.5. Navigation to Connections timed out in the automation session, which then ended; Connections and live account-switch UI coverage are **inconclusive**, not passed. No email or GitHub write was performed.
+- Still required before calling multi-user isolation release-ready: live two-account A → B → A validation, deployed RLS checks with those identities, cloud/vault delayed-response and offline integration tests, and legacy-data recovery validation. Already-dispatched external requests cannot be recalled by logout.
+
+**HITL queue:** prepare two disposable Gideon logins with no personal connections for the live isolation test. Credentials will be entered securely, not placed in chat or this document. Later confirm Aqua's exact repository, engine/build platform, and a fine-grained Aqua-only token or scoped GitHub App. No replacement GitHub token is required for the current isolation tests.
 
 ## What works, and what does not yet
 
@@ -25,7 +41,7 @@ This is our single working list of what Gideon does, what needs work, and ideas 
 | Gmail search/read | Implemented | Search, metadata, and plain-text bodies. HTML and attachments are not read by the native tools. |
 | Gmail sending | Implemented; user-verified | Local preparation → review sender, recipients, subject, body → native confirmation → Gmail send. User reports receiving the test email. This does not establish delivery to every recipient or validate every failure case. |
 | GitHub inspection | Implemented; Aqua read access user-reported | Repository listing, directory/file reads, issues, and workflow results. The user's token's exact granted permissions have not been independently audited. |
-| GitHub code changes / pull requests | Not implemented in native agent tools | No code-write, commit, branch, or pull-request creation tools. A legacy explicit slash command can create an issue; that is not code-writing capability. |
+| GitHub code changes / pull requests | Not implemented | No code-write, commit, branch, or pull-request creation tools. Legacy issue creation is disabled pending a reviewed write flow. |
 | Build and test execution | Planned | No connected worker where Gideon can edit an isolated checkout, run a build, test the game, and return artifacts. |
 | Project context | Implemented | Models can list projects and read saved briefs and linked activity. This is not an autonomous project delivery system. |
 | Activity | Partial; improvements requested | Records and a feed exist. Natural-language event summaries and richer action details are backlog items, not completed by this planning pass. |
@@ -61,8 +77,8 @@ The existing connection catalog is the earlier list of intended integrations. It
 
 | Connection | Setup in app | Executable capability today | Remaining work |
 | --- | --- | --- | --- |
-| Gmail | Google OAuth and manual credential path | Search/read; prepare and confirm a send; legacy draft command | Live account/scope checks, clearer state, richer send history |
-| GitHub | Personal access token setup | Read repositories/files/issues/run results; legacy create-issue command | Aqua-only write flow, permissions verification, reviewed changes |
+| Gmail | Google OAuth and manual credential path | Search/read; prepare and confirm a send; legacy draft command disabled | Live account/scope checks, clearer state, richer send history |
+| GitHub | Personal access token setup | Read repositories/files/issues/run results; legacy writes disabled | Aqua-only write flow, permissions verification, reviewed changes |
 | Google Calendar | OAuth scopes/setup | No native agent adapter | Define limited use case, implement and verify adapter |
 | Google Drive | OAuth scopes/setup | No native agent adapter | Scope files appropriately; implement and verify adapter |
 | YouTube | OAuth scopes/setup | No native agent adapter | Decide whether needed before implementing |
@@ -140,3 +156,5 @@ These are planning questions, not blockers to maintaining this document or permi
 - Email approval UI: [Gideon1/Views/MessagesView.swift](Gideon1/Views/MessagesView.swift)
 - Activity UI and records: [Gideon1/Views/ActivityView.swift](Gideon1/Views/ActivityView.swift), [Gideon1/Models/ChatSessionStore.swift](Gideon1/Models/ChatSessionStore.swift)
 - Mocked regression tests: [Tests/GideonAgentToolsTests.swift](Tests/GideonAgentToolsTests.swift), [Tests/RemoteGideonRuntimeTests.swift](Tests/RemoteGideonRuntimeTests.swift)
+- Session boundary and namespace tests: [Gideon1/Models/SessionScope.swift](Gideon1/Models/SessionScope.swift), [Tests/SessionScopeTests.swift](Tests/SessionScopeTests.swift)
+- Production-store/authentication simulator tests: [Gideon1Tests/AccountIsolationTests.swift](Gideon1Tests/AccountIsolationTests.swift), [Gideon1Tests/AuthenticationIsolationTests.swift](Gideon1Tests/AuthenticationIsolationTests.swift)

@@ -20,3 +20,28 @@ targets:
         INFOPLIST_FILE: Gideon1/Info.plist
         GENERATE_INFOPLIST_FILE: NO
         CODE_SIGN_STYLE: Automatic
+  Gideon1Tests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: Gideon1Tests
+    dependencies:
+      - target: Gideon1
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGN_STYLE: Automatic
+schemes:
+  Gideon1:
+    build:
+      targets:
+        Gideon1: all
+        Gideon1Tests: [test]
+    test:
+      config: Debug
+      commandLineArguments:
+        "--isolation-tests": true
+      targets:
+        - name: Gideon1Tests
+          parallelizable: false

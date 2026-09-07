@@ -7,7 +7,6 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		A01DDE7C185649F383A90101 /* GideonAgentTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = A01DDE7C185649F383A90102 /* GideonAgentTools.swift */; };
 		0624ED8E16D6D97571D4D13B /* GideonAgentHarness.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B67CF26DEA2E7AACE08B33B /* GideonAgentHarness.swift */; };
 		08ADE29D07514CAA212D5C9A /* Eyebrow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E617E9D710DC33CBF6EB51E /* Eyebrow.swift */; };
 		16A34609ACB10716E8408BF4 /* LocalQwenRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FE319335FD67A697751E103 /* LocalQwenRuntime.swift */; };
@@ -28,8 +27,10 @@
 		704DB39F3DEFDAC402A0889E /* ProviderConnectionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E8285D216FC315F0A8EED38 /* ProviderConnectionStore.swift */; };
 		74B69411C18F2A5CDFD7FDDF /* MessagesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2AEBCCB831C2D20CC92215A1 /* MessagesView.swift */; };
 		7DD0F6E980C3D4A954BA1CD4 /* OrbView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBFFE94C8192315FF97C584B /* OrbView.swift */; };
+		8178375FD856CF4D16D8067E /* SessionScope.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7492EFAD360AE17BA0B8FA7C /* SessionScope.swift */; };
 		9117D798667BFA61387B517E /* GlassCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02E4C4CBAC50649F7CC66A2D /* GlassCard.swift */; };
 		923692A225192425A5004137 /* AgentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B40D9431530BAD3C6ACA9626 /* AgentView.swift */; };
+		928396DCD0E281650F5AD1EA /* GideonAgentTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E1772FB65CF9840CBA2CE80 /* GideonAgentTools.swift */; };
 		9D52DEA8C936CBC90D8D45FF /* WaterOrbShaders.metal in Sources */ = {isa = PBXBuildFile; fileRef = 5B669B2EA91017976CB40A21 /* WaterOrbShaders.metal */; };
 		A9DAB7BE8F16D6B38168A335 /* ProjectView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAB27468C6643AFFC47F874D /* ProjectView.swift */; };
 		AEB290BC34498A6AE246CFFE /* BotMark.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97666437CFDAAC08CDC9837E /* BotMark.swift */; };
@@ -38,18 +39,30 @@
 		D242AF3E32905FBAE1D6931B /* SecureKeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05D05470E994BA80551551EF /* SecureKeyStore.swift */; };
 		D8C80E390916CE651524D520 /* tokenizer.json in Resources */ = {isa = PBXBuildFile; fileRef = 0917FC4F30E5F51BD690B779 /* tokenizer.json */; };
 		E54FA15122E17EE67A8A0332 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 93ADA970735486EA8A983C61 /* Assets.xcassets */; };
+		E5CB3C58385A76C3E04A6F8A /* AuthenticationIsolationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC9C9B2E07B5DF14F53C5A85 /* AuthenticationIsolationTests.swift */; };
+		E72CA951238894EE4DC16084 /* AccountIsolationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1068258C06E5BB70DA48C6B3 /* AccountIsolationTests.swift */; };
 		ED7131E6864BA763E9EEC384 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0026276E871277C3FCE5115A /* RootView.swift */; };
 		F05EB27F3CE0D26E18C32266 /* qwen25_monolithic_lut4.mlmodelc in Resources */ = {isa = PBXBuildFile; fileRef = E7F7C85EAD72083C17980B10 /* qwen25_monolithic_lut4.mlmodelc */; };
 		F14319C54B858060C62D6BCF /* AppTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCE9B300606D623B4E02A72B /* AppTheme.swift */; };
 		F455578A71B5CABCE2C12AEF /* GlassPill.swift in Sources */ = {isa = PBXBuildFile; fileRef = F458B4E4E31E53F603148AF7 /* GlassPill.swift */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		44319CE153A50926049CD813 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 0BED11A3F7F5127A3BCF8A99 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = CB4C9B90EE37D9E1F03FC837;
+			remoteInfo = Gideon1;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
-		A01DDE7C185649F383A90102 /* GideonAgentTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GideonAgentTools.swift; sourceTree = "<group>"; };
 		0026276E871277C3FCE5115A /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		02E4C4CBAC50649F7CC66A2D /* GlassCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlassCard.swift; sourceTree = "<group>"; };
 		05D05470E994BA80551551EF /* SecureKeyStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecureKeyStore.swift; sourceTree = "<group>"; };
 		0917FC4F30E5F51BD690B779 /* tokenizer.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = tokenizer.json; sourceTree = "<group>"; };
+		1068258C06E5BB70DA48C6B3 /* AccountIsolationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountIsolationTests.swift; sourceTree = "<group>"; };
 		10B0C8AFC7BDAF7920E5D07E /* CloudCredentialStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudCredentialStore.swift; sourceTree = "<group>"; };
 		1670874F552E424E2FB83053 /* CollapseChevron.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CollapseChevron.swift; sourceTree = "<group>"; };
 		26871B360845F7707B09BB52 /* SectionRowHeader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SectionRowHeader.swift; sourceTree = "<group>"; };
@@ -61,6 +74,8 @@
 		5A125BD1FA520BB8DF6A2B08 /* TabBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabBar.swift; sourceTree = "<group>"; };
 		5B669B2EA91017976CB40A21 /* WaterOrbShaders.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = WaterOrbShaders.metal; sourceTree = "<group>"; };
 		6D24C37AD406747DF4711D8E /* AccountStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountStore.swift; sourceTree = "<group>"; };
+		6E1772FB65CF9840CBA2CE80 /* GideonAgentTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GideonAgentTools.swift; sourceTree = "<group>"; };
+		7492EFAD360AE17BA0B8FA7C /* SessionScope.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionScope.swift; sourceTree = "<group>"; };
 		798636E5632034927B248117 /* Tab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tab.swift; sourceTree = "<group>"; };
 		7B67CF26DEA2E7AACE08B33B /* GideonAgentHarness.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GideonAgentHarness.swift; sourceTree = "<group>"; };
 		8910BDBCD7BB8400D83BA19E /* GoogleOAuthService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoogleOAuthService.swift; sourceTree = "<group>"; };
@@ -72,6 +87,7 @@
 		9F91AEAB9A993E941E5C077F /* ActivityView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityView.swift; sourceTree = "<group>"; };
 		A04FC94CB7E761BE3B9D5241 /* tokenizer_config.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = tokenizer_config.json; sourceTree = "<group>"; };
 		A36AD7E10E3FA7F3FE89AB19 /* RemoteGideonRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteGideonRuntime.swift; sourceTree = "<group>"; };
+		AC9C9B2E07B5DF14F53C5A85 /* AuthenticationIsolationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthenticationIsolationTests.swift; sourceTree = "<group>"; };
 		B40D9431530BAD3C6ACA9626 /* AgentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentView.swift; sourceTree = "<group>"; };
 		BAE371E36CFBA9D23025B93B /* LocalModelRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalModelRegistry.swift; sourceTree = "<group>"; };
 		BCE9B300606D623B4E02A72B /* AppTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppTheme.swift; sourceTree = "<group>"; };
@@ -79,6 +95,7 @@
 		CBFFE94C8192315FF97C584B /* OrbView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrbView.swift; sourceTree = "<group>"; };
 		D7F690ABFF4E5C698D872B89 /* SafariSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SafariSheetView.swift; sourceTree = "<group>"; };
 		E7F7C85EAD72083C17980B10 /* qwen25_monolithic_lut4.mlmodelc */ = {isa = PBXFileReference; path = qwen25_monolithic_lut4.mlmodelc; sourceTree = "<group>"; };
+		EA2EB990081734AC2D83E7B5 /* Gideon1Tests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = Gideon1Tests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		F458B4E4E31E53F603148AF7 /* GlassPill.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlassPill.swift; sourceTree = "<group>"; };
 		FAB27468C6643AFFC47F874D /* ProjectView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectView.swift; sourceTree = "<group>"; };
 		FE59B59BC926CECE725CEF93 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -89,6 +106,7 @@
 			isa = PBXGroup;
 			children = (
 				3D374F3E81617F934E84D355 /* Gideon1 */,
+				C1007A1A6B0AACCD37113A59 /* Gideon1Tests */,
 				A7403AC28B4CC801DBFDD0D1 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -139,8 +157,18 @@
 			isa = PBXGroup;
 			children = (
 				32D473FE99076BE4152B56E7 /* Gideon1.app */,
+				EA2EB990081734AC2D83E7B5 /* Gideon1Tests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		C1007A1A6B0AACCD37113A59 /* Gideon1Tests */ = {
+			isa = PBXGroup;
+			children = (
+				1068258C06E5BB70DA48C6B3 /* AccountIsolationTests.swift */,
+				AC9C9B2E07B5DF14F53C5A85 /* AuthenticationIsolationTests.swift */,
+			);
+			path = Gideon1Tests;
 			sourceTree = "<group>";
 		};
 		CBD42BC35F640FF55D40D33E /* Views */ = {
@@ -170,7 +198,7 @@
 				285420EF9261E9ABD36EDFC0 /* ChatSessionStore.swift */,
 				10B0C8AFC7BDAF7920E5D07E /* CloudCredentialStore.swift */,
 				7B67CF26DEA2E7AACE08B33B /* GideonAgentHarness.swift */,
-				A01DDE7C185649F383A90102 /* GideonAgentTools.swift */,
+				6E1772FB65CF9840CBA2CE80 /* GideonAgentTools.swift */,
 				BF1D25D46A6316C4D1646591 /* GideonModelSelectionStore.swift */,
 				8910BDBCD7BB8400D83BA19E /* GoogleOAuthService.swift */,
 				BAE371E36CFBA9D23025B93B /* LocalModelRegistry.swift */,
@@ -178,6 +206,7 @@
 				9E8285D216FC315F0A8EED38 /* ProviderConnectionStore.swift */,
 				A36AD7E10E3FA7F3FE89AB19 /* RemoteGideonRuntime.swift */,
 				05D05470E994BA80551551EF /* SecureKeyStore.swift */,
+				7492EFAD360AE17BA0B8FA7C /* SessionScope.swift */,
 				798636E5632034927B248117 /* Tab.swift */,
 				715A6E8BDBFB658765B4EDBA /* qwen25-3b-coreml */,
 			);
@@ -205,6 +234,24 @@
 			productReference = 32D473FE99076BE4152B56E7 /* Gideon1.app */;
 			productType = "com.apple.product-type.application";
 		};
+		D07D42F0B9E58476AE482EAA /* Gideon1Tests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = FFCD1EBBFE72A4EEC54EC54E /* Build configuration list for PBXNativeTarget "Gideon1Tests" */;
+			buildPhases = (
+				31FC3D6B3FB3D12F5CB8408F /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				3B3F1F270F64D677108FFD0A /* PBXTargetDependency */,
+			);
+			name = Gideon1Tests;
+			packageProductDependencies = (
+			);
+			productName = Gideon1Tests;
+			productReference = EA2EB990081734AC2D83E7B5 /* Gideon1Tests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -215,6 +262,10 @@
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
 					CB4C9B90EE37D9E1F03FC837 = {
+						DevelopmentTeam = 84U223KLAD;
+						ProvisioningStyle = Automatic;
+					};
+					D07D42F0B9E58476AE482EAA = {
 						DevelopmentTeam = 84U223KLAD;
 						ProvisioningStyle = Automatic;
 					};
@@ -235,6 +286,7 @@
 			projectRoot = "";
 			targets = (
 				CB4C9B90EE37D9E1F03FC837 /* Gideon1 */,
+				D07D42F0B9E58476AE482EAA /* Gideon1Tests */,
 			);
 		};
 /* End PBXProject section */
@@ -254,6 +306,15 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		31FC3D6B3FB3D12F5CB8408F /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				E72CA951238894EE4DC16084 /* AccountIsolationTests.swift in Sources */,
+				E5CB3C58385A76C3E04A6F8A /* AuthenticationIsolationTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		35B9A6BBB6674AEE2ADCEF07 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -269,7 +330,7 @@
 				08ADE29D07514CAA212D5C9A /* Eyebrow.swift in Sources */,
 				BBCA746F1F8404A60C848689 /* Gideon1App.swift in Sources */,
 				0624ED8E16D6D97571D4D13B /* GideonAgentHarness.swift in Sources */,
-				A01DDE7C185649F383A90101 /* GideonAgentTools.swift in Sources */,
+				928396DCD0E281650F5AD1EA /* GideonAgentTools.swift in Sources */,
 				22627A8688722843F5D29471 /* GideonModelSelectionStore.swift in Sources */,
 				9117D798667BFA61387B517E /* GlassCard.swift in Sources */,
 				F455578A71B5CABCE2C12AEF /* GlassPill.swift in Sources */,
@@ -286,6 +347,7 @@
 				5C706D6EEF370A51AD5297D7 /* SafariSheetView.swift in Sources */,
 				60410A8FCE64C7B9A56C50C3 /* SectionRowHeader.swift in Sources */,
 				D242AF3E32905FBAE1D6931B /* SecureKeyStore.swift in Sources */,
+				8178375FD856CF4D16D8067E /* SessionScope.swift in Sources */,
 				3149FE406B5E8388281E546D /* Tab.swift in Sources */,
 				1BD9441ACEAB3A5236059086 /* TabBar.swift in Sources */,
 				9D52DEA8C936CBC90D8D45FF /* WaterOrbShaders.metal in Sources */,
@@ -293,6 +355,14 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		3B3F1F270F64D677108FFD0A /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = CB4C9B90EE37D9E1F03FC837 /* Gideon1 */;
+			targetProxy = 44319CE153A50926049CD813 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		3507E7EE5E20BC79B76EFC17 /* Release */ = {
@@ -418,6 +488,44 @@
 			};
 			name = Debug;
 		};
+		6579A0AC2CCC7FA107BE93BC /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.taylorolsenvogt.Gideon1Tests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Gideon1.app/Gideon1";
+			};
+			name = Debug;
+		};
+		6BAD71DB8DB752A27A7D08FC /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.taylorolsenvogt.Gideon1Tests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Gideon1.app/Gideon1";
+			};
+			name = Release;
+		};
 		C25A2CB36CF5503212EB5F6F /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -473,6 +581,15 @@
 			buildConfigurations = (
 				C25A2CB36CF5503212EB5F6F /* Debug */,
 				D61CC2C7AFFA69A2DA5D92F3 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		FFCD1EBBFE72A4EEC54EC54E /* Build configuration list for PBXNativeTarget "Gideon1Tests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				6579A0AC2CCC7FA107BE93BC /* Debug */,
+				6BAD71DB8DB752A27A7D08FC /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;
