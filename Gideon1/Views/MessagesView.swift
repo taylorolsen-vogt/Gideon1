@@ -460,6 +460,7 @@ final class MessagesSessionStore: ObservableObject {
     private struct EmailApproval {
         let email: PendingGmailSend
         let session: GideonAgentToolSession
+        let scope: SessionScope
     }
 
     var pendingEmailForSelectedChat: PendingGmailSend? {
@@ -467,6 +468,7 @@ final class MessagesSessionStore: ObservableObject {
     }
 
     func discardEmail(_ email: PendingGmailSend) {
+        guard loadedScope.isCurrent else { return }
         guard let entry = emailApprovals.first(where: { $0.value.email.id == email.id }) else { return }
         emailApprovals.removeValue(forKey: entry.key)
         reviewingEmail = nil
@@ -475,20 +477,22 @@ final class MessagesSessionStore: ObservableObject {
     }
 
     func confirmEmail(_ email: PendingGmailSend) {
+        let scope = SessionScope.current
+        guard scope.isCurrent, loadedScope == scope else { return }
         guard let chatID = selectedChatID, let approval = emailApprovals[chatID],
-              approval.email == email, !sendingEmailChats.contains(chatID) else { return }
+              approval.scope == scope, approval.email == email, !sendingEmailChats.contains(chatID) else { return }
         // Consume UI approval synchronously; model output and repeated taps cannot authorize sending.
         emailApprovals.removeValue(forKey: chatID)
         reviewingEmail = nil
         sendingEmailChats.insert(chatID)
-        let userID = AppSessionStore.shared.currentUserID
         append(.init(role: .assistant,
                      text: "Email send approved. Awaiting Gmail's response. If this run is interrupted, check Sent before attempting another send.",
                      modelLabel: "Gmail"), to: chatID)
         Task {
+            guard scope.isCurrent else { return }
             let outcome = await approval.session.confirmSend(id: email.id)
+            guard scope.isCurrent else { return }
             sendingEmailChats.remove(chatID)
-            guard AppSessionStore.shared.currentUserID == userID else { return }
             append(.init(role: .assistant, text: outcome.text, modelLabel: "Gmail"), to: chatID)
         }
     }
@@ -496,6 +500,7 @@ final class MessagesSessionStore: ObservableObject {
     private var generationTask: Task<Void, Never>?
     private var observerTokens: [NSObjectProtocol] = []
     private var coldLaunchChatID: UUID?
+    private var loadedScope = SessionScope.current
     private static let storageKey = "gideon.chatSessions.v2"
     private static let selectedChatStorageKey = "gideon.chatSessions.selected.v1"
     private let coldStartTimeoutNanoseconds: UInt64 = 180_000_000_000
@@ -525,14 +530,16 @@ final class MessagesSessionStore: ObservableObject {
     init() {
         loadLocal()
         registerObservers()
-        switch AppDataModeStore.shared.mode {
-        case .local:
-            selectFreshChatForColdLaunch()
-        case .cloud:
+        let scope = SessionScope.current
+        if scope.canSyncCloud {
             Task {
-                await loadCloud()
+                guard scope.isCurrent else { return }
+                await loadCloud(scope: scope)
+                guard scope.isCurrent else { return }
                 selectFreshChatForColdLaunch()
             }
+        } else {
+            selectFreshChatForColdLaunch()
         }
         warmModelIfNeeded()
     }
@@ -542,6 +549,8 @@ final class MessagesSessionStore: ObservableObject {
     }
 
     func sendCurrentMessage() {
+        let scope = SessionScope.current
+        guard scope.isCurrent, loadedScope == scope else { return }
         let prompt = message.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !prompt.isEmpty else { return }
         guard let selectedChatID else { return }
@@ -565,32 +574,31 @@ final class MessagesSessionStore: ObservableObject {
         }
 
         generationTask = Task {
+            guard scope.isCurrent else { return }
             let timeout = !isRemote && self.activeThread.count <= 1 ? self.coldStartTimeoutNanoseconds : self.generationTimeoutNanoseconds
-            let result = await respondWithTimeout(prompt: prompt, history: historyTurns, timeoutNanoseconds: timeout)
-            if Task.isCancelled { return }
+            let result = await respondWithTimeout(prompt: prompt, history: historyTurns, timeoutNanoseconds: timeout, scope: scope)
+            guard scope.isCurrent else { return }
 
-            await MainActor.run {
-                guard self.generatingChatID == selectedChatID else { return }
-                if let result {
-                    self.append(.init(role: .assistant, text: result.text, modelLabel: responseModelLabel), to: selectedChatID)
-                    if let email = result.pendingEmail, let session = result.emailSession {
-                        self.emailApprovals[selectedChatID] = EmailApproval(email: email, session: session)
-                    }
-                } else {
-                    self.append(
-                        .init(
-                            role: .assistant,
-                            text: isRemote
-                                ? "The provider/tool run timed out and was cancelled. Completed actions were not undone. Check Activity before retrying."
-                                : "The local model timed out on this turn. Please try again with a shorter prompt.",
-                            modelLabel: responseModelLabel
-                        ),
-                        to: selectedChatID
-                    )
+            guard self.generatingChatID == selectedChatID else { return }
+            if let result {
+                self.append(.init(role: .assistant, text: result.text, modelLabel: responseModelLabel), to: selectedChatID)
+                if let email = result.pendingEmail, let session = result.emailSession {
+                    self.emailApprovals[selectedChatID] = EmailApproval(email: email, session: session, scope: scope)
                 }
-                self.generatingChatID = nil
-                self.isGenerating = false
+            } else {
+                self.append(
+                    .init(
+                        role: .assistant,
+                        text: isRemote
+                            ? "The provider/tool run timed out and was cancelled. Completed actions were not undone. Check Activity before retrying."
+                            : "The local model timed out on this turn. Please try again with a shorter prompt.",
+                        modelLabel: responseModelLabel
+                    ),
+                    to: selectedChatID
+                )
             }
+            self.generatingChatID = nil
+            self.isGenerating = false
         }
     }
 
@@ -600,6 +608,7 @@ final class MessagesSessionStore: ObservableObject {
     }
 
     func createNewChat() {
+        guard loadedScope.isCurrent else { return }
         let chat = ChatSession(
             id: UUID(),
             title: "New Chat",
@@ -624,6 +633,7 @@ final class MessagesSessionStore: ObservableObject {
     }
 
     func selectChat(id: UUID) {
+        guard loadedScope.isCurrent, chats.contains(where: { $0.id == id }) else { return }
         reviewingEmail = nil
         if id != coldLaunchChatID {
             coldLaunchChatID = nil
@@ -642,21 +652,27 @@ final class MessagesSessionStore: ObservableObject {
     }
 
     func warmModelIfNeeded() {
+        let scope = SessionScope.current
+        guard scope.isCurrent, loadedScope == scope else { return }
         guard !isPreparingModel else { return }
         isPreparingModel = true
 
         Task {
+            guard scope.isCurrent else { return }
             _ = await LocalQwenRuntime.shared.warmUp()
-            await MainActor.run {
-                self.isPreparingModel = false
-            }
+            guard scope.isCurrent else { return }
+            self.isPreparingModel = false
         }
     }
 
-    private func respondWithTimeout(prompt: String, history: [HarnessTurn], timeoutNanoseconds: UInt64) async -> HarnessResult? {
-        await withTaskGroup(of: HarnessResult?.self) { group in
+    private func respondWithTimeout(prompt: String, history: [HarnessTurn], timeoutNanoseconds: UInt64, scope: SessionScope) async -> HarnessResult? {
+        guard scope.isCurrent else { return nil }
+        let result = await withTaskGroup(of: HarnessResult?.self, returning: HarnessResult?.self) { group in
             group.addTask {
-                await GideonAgentHarness.shared.respond(to: prompt, history: history)
+                guard await MainActor.run(body: { scope.isCurrent }) else { return nil }
+                let result = await GideonAgentHarness.shared.respond(to: prompt, history: history)
+                guard await MainActor.run(body: { scope.isCurrent }) else { return nil }
+                return result
             }
 
             group.addTask {
@@ -666,8 +682,11 @@ final class MessagesSessionStore: ObservableObject {
 
             let firstFinished = await group.next() ?? nil
             group.cancelAll()
+            guard scope.isCurrent else { return nil }
             return firstFinished
         }
+        guard scope.isCurrent else { return nil }
+        return result
     }
 
     private var activeThread: [ChatItem] {
@@ -679,6 +698,7 @@ final class MessagesSessionStore: ObservableObject {
     }
 
     private func append(_ item: ChatItem, to chatID: UUID) {
+        guard loadedScope.isCurrent else { return }
         guard let index = chats.firstIndex(where: { $0.id == chatID }) else {
             return
         }
@@ -693,30 +713,30 @@ final class MessagesSessionStore: ObservableObject {
     }
 
     private func persist() {
-        switch AppDataModeStore.shared.mode {
-        case .local:
-            persistLocal()
-        case .cloud:
-            persistLocal()
-            Task { [snapshot = chats, selected = selectedChatID] in
-                await persistCloud(snapshot: snapshot, selectedID: selected)
-            }
+        let scope = SessionScope.current
+        guard scope.isCurrent, loadedScope == scope else { return }
+        persistLocal()
+        guard scope.canSyncCloud else { return }
+        Task { [snapshot = chats, selected = selectedChatID] in
+            guard scope.isCurrent else { return }
+            await persistCloud(snapshot: snapshot, selectedID: selected, scope: scope)
         }
     }
 
     private func persistLocal() {
+        guard loadedScope.isCurrent else { return }
         if let selectedChatID {
-            UserDefaults.standard.set(selectedChatID.uuidString, forKey: Self.selectedChatStorageKey)
+            ScopedDefaults.standard.set(selectedChatID.uuidString, forKey: Self.selectedChatStorageKey)
         } else {
-            UserDefaults.standard.removeObject(forKey: Self.selectedChatStorageKey)
+            ScopedDefaults.standard.removeObject(forKey: Self.selectedChatStorageKey)
         }
 
         guard let data = try? JSONEncoder().encode(chats) else { return }
-        UserDefaults.standard.set(data, forKey: Self.storageKey)
+        ScopedDefaults.standard.set(data, forKey: Self.storageKey)
     }
 
     private func loadLocal() {
-        guard let data = UserDefaults.standard.data(forKey: Self.storageKey),
+        guard let data = ScopedDefaults.standard.data(forKey: Self.storageKey),
               let decoded = try? JSONDecoder().decode([ChatSession].self, from: data) else {
             chats = []
             selectedChatID = nil
@@ -725,7 +745,7 @@ final class MessagesSessionStore: ObservableObject {
 
         chats = decoded
 
-        if let savedSelected = UserDefaults.standard.string(forKey: Self.selectedChatStorageKey),
+        if let savedSelected = ScopedDefaults.standard.string(forKey: Self.selectedChatStorageKey),
            let uuid = UUID(uuidString: savedSelected),
            chats.contains(where: { $0.id == uuid }) {
             selectedChatID = uuid
@@ -735,63 +755,87 @@ final class MessagesSessionStore: ObservableObject {
     }
 
     private func registerObservers() {
-        let center = NotificationCenter.default
-        observerTokens.append(
-            center.addObserver(forName: .gideonDataModeChanged, object: nil, queue: .main) { [weak self] _ in
-                guard let self else { return }
-                Task { await self.reloadFromCurrentMode() }
-            }
-        )
-        observerTokens.append(
-            center.addObserver(forName: .gideonSessionChanged, object: nil, queue: .main) { [weak self] _ in
-                guard let self else { return }
-                Task { await self.reloadFromCurrentMode() }
-            }
-        )
+        for name in [Notification.Name.gideonSessionChanged, .gideonDataModeChanged] {
+            observerTokens.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    let scope = SessionScope.current
+                    self.resetForCurrentScope(scope)
+                    Task { [weak self] in
+                        guard scope.isCurrent else { return }
+                        await self?.reload(scope: scope)
+                    }
+                }
+            })
+        }
     }
 
-    func reloadFromCurrentMode() async {
-        // Approvals never persist or cross account/data-mode changes.
+    private func resetForCurrentScope(_ scope: SessionScope) {
+        // Only an uninterrupted same-owner transition may preserve a launch chat.
+        let launchChat = loadedScope.userID == scope.userID && selectedChatID == coldLaunchChatID
+            ? coldLaunchChatID.flatMap { id in chats.first(where: { $0.id == id }) }
+            : nil
         generationTask?.cancel()
+        generationTask = nil
         generatingChatID = nil
         isGenerating = false
+        isPreparingModel = false
+        message = ""
         reviewingEmail = nil
         let discarded = Array(emailApprovals.values)
         emailApprovals.removeAll()
-        for approval in discarded { await approval.session.discardPendingSend(id: approval.email.id) }
-        let launchChat = coldLaunchChatID.flatMap { launchID in
-            chats.first(where: { $0.id == launchID })
-        }
-        let shouldPreserveLaunchChat = launchChat != nil && selectedChatID == coldLaunchChatID
-
+        sendingEmailChats.removeAll()
+        chats = []
+        selectedChatID = nil
+        coldLaunchChatID = nil
+        loadedScope = scope
         loadLocal()
-        switch AppDataModeStore.shared.mode {
-        case .local:
-            loadLocal()
-            if chats.isEmpty {
-                createNewChat()
+        if let launchChat {
+            if !chats.contains(where: { $0.id == launchChat.id }) {
+                chats.insert(launchChat, at: 0)
             }
-        case .cloud:
-            await loadCloud()
-            if chats.isEmpty {
-                createNewChat()
-            }
+            coldLaunchChatID = launchChat.id
+            selectedChatID = launchChat.id
         }
+        // Cleanup deliberately targets the captured old actors even after a scope
+        // change. It cannot send mail or write any new-session UI/cache state.
+        for approval in discarded {
+            Task { await approval.session.discardPendingSend(id: approval.email.id) }
+        }
+    }
 
-        if shouldPreserveLaunchChat, let launchChat {
+    func reloadFromCurrentMode() async {
+        let scope = SessionScope.current
+        guard scope.isCurrent else { return }
+        resetForCurrentScope(scope)
+        await reload(scope: scope)
+    }
+
+    private func reload(scope: SessionScope) async {
+        guard scope.isCurrent else { return }
+        let launchChat = selectedChatID == coldLaunchChatID
+            ? coldLaunchChatID.flatMap { id in chats.first(where: { $0.id == id }) }
+            : nil
+        if scope.canSyncCloud {
+            await loadCloud(scope: scope)
+            guard scope.isCurrent else { return }
+        }
+        if let launchChat {
             if !chats.contains(where: { $0.id == launchChat.id }) {
                 chats.insert(launchChat, at: 0)
             }
             selectedChatID = launchChat.id
             persist()
+        } else if chats.isEmpty {
+            createNewChat()
         }
     }
 
-    private func loadCloud() async {
-        guard let userID = AppSessionStore.shared.currentUserID,
+    private func loadCloud(scope: SessionScope) async {
+        guard scope.isCurrent, scope.canSyncCloud,
+              let userID = scope.userID,
               let token = AppSessionStore.shared.currentAccessToken,
               let url = URL(string: "\(AppSessionStore.supabaseRESTURL)/chat_sessions?user_id=eq.\(userID)&select=*&order=created_at.desc") else {
-            loadLocal()
             return
         }
 
@@ -804,6 +848,7 @@ final class MessagesSessionStore: ObservableObject {
 
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
+            guard scope.isCurrent else { return }
             guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
                 return
             }
@@ -811,6 +856,7 @@ final class MessagesSessionStore: ObservableObject {
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
             let rows = try decoder.decode([SupabaseChatSessionDTO].self, from: data)
+            guard rows.allSatisfy({ $0.userID.lowercased() == userID }) else { return }
             if rows.isEmpty {
                 chats = []
                 selectedChatID = nil
@@ -832,8 +878,9 @@ final class MessagesSessionStore: ObservableObject {
         }
     }
 
-    private func persistCloud(snapshot: [ChatSession], selectedID: UUID?) async {
-        guard let userID = AppSessionStore.shared.currentUserID,
+    private func persistCloud(snapshot: [ChatSession], selectedID: UUID?, scope: SessionScope) async {
+        guard scope.isCurrent, scope.canSyncCloud,
+              let userID = scope.userID,
               let token = AppSessionStore.shared.currentAccessToken,
               !snapshot.isEmpty,
               let insertURL = URL(string: "\(AppSessionStore.supabaseRESTURL)/chat_sessions?on_conflict=user_id,id") else {
@@ -857,12 +904,14 @@ final class MessagesSessionStore: ObservableObject {
             insertRequest.httpBody = try encoder.encode(payload)
 
             let (_, response) = try await URLSession.shared.data(for: insertRequest)
+            guard scope.isCurrent else { return }
             guard let http = response as? HTTPURLResponse,
                   (200..<300).contains(http.statusCode) else {
                 print("[Gideon] chat cloud insert failed for user \(userID)")
                 return
             }
         } catch {
+            guard scope.isCurrent else { return }
             print("[Gideon] chat cloud sync error: \(error.localizedDescription)")
         }
     }

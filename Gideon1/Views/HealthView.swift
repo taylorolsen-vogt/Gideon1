@@ -1,6 +1,7 @@
 import AuthenticationServices
 import SwiftUI
 
+@MainActor
 struct ConnectionsView: View {
     @Environment(\.openURL) private var openURL
     @EnvironmentObject private var modelSelection: GideonModelSelectionStore
@@ -19,8 +20,10 @@ struct ConnectionsView: View {
     @State private var isConnectingAccount = false
     @State private var connectPlatformInput = ""
     @State private var connectNotesInput = ""
-    @State private var portalURL: PortalSheetItem?
+    @State private var portalURL: ScopedConnectionPortal?
     @State private var modelPendingDeletion: GideonAPIProviderProfile?
+    @State private var modelDeletionScope: SessionScope?
+    @State private var formScope = SessionScope.current
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -121,7 +124,10 @@ struct ConnectionsView: View {
                     }
                     ToolbarItem(placement: .confirmationAction) {
                         Button(isVerifyingModel ? "Verifying..." : (modelSaveStatus.contains("failed") || modelSaveStatus.contains("Failed") ? "Try again" : "Save")) {
-                            Task { await verifyAndSaveModel() }
+                            let scope = SessionScope.current
+                            guard formScope == scope else { return }
+                            let draft = modelDraft
+                            Task { await verifyAndSaveModel(draft, scope: scope) }
                         }
                         .disabled(isVerifyingModel ||
                             modelDraft.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
@@ -211,7 +217,10 @@ struct ConnectionsView: View {
                     if let service = selectedAccountService, service.usesNativeGoogleOAuth, target == .accounts {
                         Section("Authorization") {
                             Button {
-                                Task { await connectGoogleAccount(service) }
+                                let scope = SessionScope.current
+                                guard formScope == scope else { return }
+                                let draft = connectionDraft
+                                Task { await connectGoogleAccount(service, draft: draft, scope: scope) }
                             } label: {
                                 HStack {
                                     Image(systemName: "person.crop.circle.badge.checkmark")
@@ -242,11 +251,19 @@ struct ConnectionsView: View {
                     } else if connectAuthType == .oauth {
                         Section("Authorization") {
                             Button("Open authorization page") {
+                                let scope = SessionScope.current
+                                guard formScope == scope, scope.isCurrent else { return }
                                 let name = connectPlatformInput.trimmingCharacters(in: .whitespacesAndNewlines)
                                 let fallback = name.isEmpty ? "Provider" : name
+                                let portal = ScopedConnectionPortal(
+                                    url: connectionStore.portalURL(for: fallback),
+                                    provider: fallback,
+                                    scope: scope
+                                )
                                 connectTarget = nil
                                 DispatchQueue.main.async {
-                                    portalURL = PortalSheetItem(url: connectionStore.portalURL(for: fallback))
+                                    guard scope.isCurrent else { return }
+                                    portalURL = portal
                                 }
                                 connectionStore.markManualStep(providerName: fallback, detail: "OAuth flow opened")
                             }
@@ -274,7 +291,10 @@ struct ConnectionsView: View {
                     if selectedAccountService?.usesNativeGoogleOAuth != true {
                         ToolbarItem(placement: .confirmationAction) {
                             Button("Save") {
-                                Task { await saveManualConnection(for: target) }
+                                let scope = SessionScope.current
+                                guard formScope == scope else { return }
+                                let draft = connectionDraft
+                                Task { await saveManualConnection(draft, scope: scope) }
                             }
                             .disabled(!canSaveConnection)
                         }
@@ -283,27 +303,42 @@ struct ConnectionsView: View {
             }
             .presentationDetents([.large])
         }
-        .sheet(item: $portalURL, onDismiss: {
-            let provider = modelDraft.providerKey.isEmpty
-                ? (connectPlatformInput.isEmpty ? "Provider" : connectPlatformInput)
-                : modelDraft.providerKey
-            connectionStore.markManualStep(providerName: provider, detail: "Provider flow opened. Finish setup manually if needed.")
-        }) { item in
+        .sheet(item: $portalURL) { item in
             SafariSheetView(url: item.url)
+                .onDisappear {
+                    guard item.scope.isCurrent else { return }
+                    connectionStore.markManualStep(providerName: item.provider, detail: "Provider flow opened. Finish setup manually if needed.")
+                }
         }
         .alert("Delete model provider?", isPresented: Binding(
             get: { modelPendingDeletion != nil },
             set: { if !$0 { modelPendingDeletion = nil } }
         ), presenting: modelPendingDeletion) { profile in
             Button("Delete", role: .destructive) {
+                guard let scope = modelDeletionScope, scope.isCurrent else { return }
                 modelPendingDeletion = nil
-                Task { await modelSelection.removeAPIProvider(id: profile.id) }
+                modelDeletionScope = nil
+                Task {
+                    guard scope.isCurrent else { return }
+                    await modelSelection.removeAPIProvider(id: profile.id)
+                }
             }
             Button("Cancel", role: .cancel) {
                 modelPendingDeletion = nil
             }
         } message: { profile in
             Text("This removes \(profile.name), its API key, and its synchronized connection from your Gideon account on all devices.")
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .gideonSessionChanged)) { _ in
+            clearFormsForSessionChange()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .gideonDataModeChanged)) { _ in
+            clearFormsForSessionChange()
+        }
+        .onAppear {
+            if formScope != SessionScope.current {
+                clearFormsForSessionChange()
+            }
         }
     }
 
@@ -428,6 +463,7 @@ struct ConnectionsView: View {
 
                             if let profile {
                                 Button {
+                                    modelDeletionScope = SessionScope.current
                                     modelPendingDeletion = profile
                                 } label: {
                                     Image(systemName: "xmark.circle")
@@ -502,30 +538,34 @@ struct ConnectionsView: View {
         }
     }
 
-    private func verifyAndSaveModel() async {
+    private func verifyAndSaveModel(_ draft: AddModelDraft, scope: SessionScope) async {
+        guard scope.isCurrent else { return }
         isVerifyingModel = true
         modelSaveStatus = "Verifying..."
-        defer { isVerifyingModel = false }
+        defer { if scope.isCurrent { isVerifyingModel = false } }
 
-        let provider = modelDraft.selectedProvider.providerKey
+        let provider = draft.selectedProvider.providerKey
         let verify = await connectionStore.verifyConnection(
             providerName: provider,
-            endpoint: modelDraft.baseURL,
-            apiKey: modelDraft.apiKey,
-            modelIdentifier: modelDraft.selectedProvider.defaultModelID
+            endpoint: draft.baseURL,
+            apiKey: draft.apiKey,
+            modelIdentifier: draft.selectedProvider.defaultModelID,
+            expectedScope: scope
         )
+        guard scope.isCurrent else { return }
         guard verify.ok else {
             connectionStore.markError(providerName: provider, detail: verify.message)
             modelSaveStatus = "Verification failed: \(verify.message)"
             return
         }
         let added = await modelSelection.addAPIProvider(
-            name: modelDraft.name,
+            name: draft.name,
             provider: provider,
-            baseURL: modelDraft.baseURL,
-            apiKey: modelDraft.apiKey,
-            customModelIdentifiers: parseCustomModelIDs(from: modelDraft.customModelsText)
+            baseURL: draft.baseURL,
+            apiKey: draft.apiKey,
+            customModelIdentifiers: parseCustomModelIDs(from: draft.customModelsText)
         )
+        guard scope.isCurrent else { return }
         guard added else {
             connectionStore.markError(providerName: provider, detail: "Provider save failed")
             modelSaveStatus = "Provider save failed"
@@ -548,6 +588,42 @@ struct ConnectionsView: View {
             customModelsText: ""
         )
         modelSaveStatus = ""
+    }
+
+    // Notifications arrive after the new generation is activated, including
+    // logout/re-login of the same user. Keep this on the presenting view so
+    // sensitive bindings are cleared even while a sheet covers it.
+    private func clearFormsForSessionChange() {
+        modelDraft = AddModelDraft()
+        connectServicePreset = ""
+        connectPlatformInput = ""
+        connectNotesInput = ""
+        connectAPIKeyInput = ""
+        connectBaseURLInput = ""
+        connectAuthType = .apiKey
+        modelSaveStatus = ""
+        accountSaveStatus = ""
+        isVerifyingModel = false
+        isConnectingAccount = false
+        modelPendingDeletion = nil
+        modelDeletionScope = nil
+        showingAddModelSheet = false
+        connectTarget = nil
+        portalURL = nil
+        formScope = SessionScope.current
+    }
+
+    private var connectionDraft: ConnectionDraft {
+        ConnectionDraft(
+            service: connectServicePreset == "__other__"
+                ? connectPlatformInput.trimmingCharacters(in: .whitespacesAndNewlines)
+                : connectServicePreset,
+            displayName: connectPlatformInput.trimmingCharacters(in: .whitespacesAndNewlines),
+            authType: connectAuthType,
+            apiKey: connectAPIKeyInput.trimmingCharacters(in: .whitespacesAndNewlines),
+            baseURL: connectBaseURLInput.trimmingCharacters(in: .whitespacesAndNewlines),
+            notes: connectNotesInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
     }
 
     private var providerSelectionBinding: Binding<ModelProviderPreset> {
@@ -606,23 +682,27 @@ struct ConnectionsView: View {
     }
 
     private func openSetupPage(for service: AccountServicePreset) {
+        let scope = SessionScope.current
+        guard formScope == scope, scope.isCurrent else { return }
         openURL(service.setupURL)
+        guard scope.isCurrent else { return }
         connectionStore.markManualStep(providerName: service.name, detail: "Credential setup opened")
     }
 
-    private func connectGoogleAccount(_ service: AccountServicePreset) async {
+    private func connectGoogleAccount(_ service: AccountServicePreset, draft: ConnectionDraft, scope: SessionScope) async {
+        guard scope.isCurrent else { return }
         isConnectingAccount = true
-        defer { isConnectingAccount = false }
+        defer { if scope.isCurrent { isConnectingAccount = false } }
 
         do {
             let tokens = try await GoogleOAuthService.shared.authorize(scopes: service.oauthScopes)
-            let displayName = connectPlatformInput.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard scope.isCurrent else { return }
             accountStore.add(
-                name: displayName.isEmpty ? service.name : displayName,
+                name: draft.displayName.isEmpty ? service.name : draft.displayName,
                 service: service.name,
                 authType: .oauth,
                 baseURL: "",
-                notes: connectNotesInput.trimmingCharacters(in: .whitespacesAndNewlines),
+                notes: draft.notes,
                 apiKey: tokens.accessToken,
                 refreshToken: tokens.refreshToken ?? ""
             )
@@ -630,8 +710,10 @@ struct ConnectionsView: View {
             accountSaveStatus = "\(service.name) connected"
             connectTarget = nil
         } catch let error as ASWebAuthenticationSessionError where error.code == .canceledLogin {
+            guard scope.isCurrent else { return }
             accountSaveStatus = "Google sign-in canceled"
         } catch {
+            guard scope.isCurrent else { return }
             accountSaveStatus = "Google sign-in failed: \(error.localizedDescription)"
         }
     }
@@ -698,28 +780,26 @@ struct ConnectionsView: View {
         return "Credentials vary by provider. API key/token is most common."
     }
 
-    private func saveManualConnection(for target: ConnectTarget) async {
-        let service = connectServicePreset == "__other__"
-            ? connectPlatformInput.trimmingCharacters(in: .whitespacesAndNewlines)
-            : connectServicePreset
+    private func saveManualConnection(_ draft: ConnectionDraft, scope: SessionScope) async {
+        guard scope.isCurrent else { return }
+        let service = draft.service
         guard !service.isEmpty else { return }
 
-        let trimmedAPIKey = connectAPIKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedBaseURL = connectBaseURLInput.trimmingCharacters(in: .whitespacesAndNewlines)
-
         isVerifyingModel = true
-        defer { isVerifyingModel = false }
+        defer { if scope.isCurrent { isVerifyingModel = false } }
 
         // Reuse the provider verifier for service integrations so we can track real connectivity.
         let verification = await connectionStore.verifyConnection(
             providerName: service,
-            endpoint: trimmedBaseURL,
-            apiKey: trimmedAPIKey,
-            modelIdentifier: ""
+            endpoint: draft.baseURL,
+            apiKey: draft.apiKey,
+            modelIdentifier: "",
+            expectedScope: scope
         )
+        guard scope.isCurrent else { return }
 
         let authType: AccountRecord.AuthType
-        switch connectAuthType {
+        switch draft.authType {
         case .apiKey: authType = .apiKey
         case .oauth:  authType = .oauth
         case .manual: authType = .manual
@@ -729,9 +809,9 @@ struct ConnectionsView: View {
             name: service,
             service: service,
             authType: authType,
-            baseURL: trimmedBaseURL,
-            notes: connectNotesInput.trimmingCharacters(in: .whitespacesAndNewlines),
-            apiKey: trimmedAPIKey
+            baseURL: draft.baseURL,
+            notes: draft.notes,
+            apiKey: draft.apiKey
         )
 
         if verification.ok {
@@ -744,6 +824,22 @@ struct ConnectionsView: View {
 
         connectTarget = nil
     }
+}
+
+private struct ScopedConnectionPortal: Identifiable {
+    let id = UUID()
+    let url: URL
+    let provider: String
+    let scope: SessionScope
+}
+
+private struct ConnectionDraft {
+    let service: String
+    let displayName: String
+    let authType: ConnectAuthType
+    let apiKey: String
+    let baseURL: String
+    let notes: String
 }
 
 private struct AddModelDraft {

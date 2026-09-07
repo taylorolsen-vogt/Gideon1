@@ -224,31 +224,32 @@ final class GideonModelSelectionStore: ObservableObject {
 
     @Published var selectedModelID: String {
         didSet {
-            UserDefaults.standard.set(selectedModelID, forKey: Self.storageKey)
-            Task { [selectedModelID] in
-                await self.persistCloudSelection(selectedModelID)
-            }
+            guard !isLoading, loadedScope.isCurrent else { return }
+            ScopedDefaults.standard.set(selectedModelID, forKey: Self.storageKey)
+            scheduleCloudPersistence()
         }
     }
 
     @Published var maxNewTokens: Int {
         didSet {
+            guard !isLoading, loadedScope.isCurrent else { return }
             let clamped = Self.clampTokenLimit(maxNewTokens)
             if clamped != maxNewTokens {
                 maxNewTokens = clamped
                 return
             }
-            UserDefaults.standard.set(maxNewTokens, forKey: Self.tokensStorageKey)
+            ScopedDefaults.standard.set(maxNewTokens, forKey: Self.tokensStorageKey)
         }
     }
 
     @Published var reasoningModeRawValue: String {
         didSet {
+            guard !isLoading, loadedScope.isCurrent else { return }
             if GideonReasoningMode(rawValue: reasoningModeRawValue) == nil {
                 reasoningModeRawValue = GideonReasoningMode.balanced.rawValue
                 return
             }
-            UserDefaults.standard.set(reasoningModeRawValue, forKey: Self.reasoningStorageKey)
+            ScopedDefaults.standard.set(reasoningModeRawValue, forKey: Self.reasoningStorageKey)
         }
     }
 
@@ -296,48 +297,85 @@ final class GideonModelSelectionStore: ObservableObject {
     private static let apiProviderKeyPrefix = "gideon.api.provider.key."
     private static let legacyAPIModelKeyPrefix = "gideon.api.model.key."
 
+    private var isLoading = false
+    private var loadedScope = SessionScope.current
+    private var observerTokens: [NSObjectProtocol] = []
+
     init() {
+        apiProviders = []
+        selectedModelID = "local-qwen"
+        maxNewTokens = 96
+        reasoningModeRawValue = GideonReasoningMode.balanced.rawValue
+        loadLocal()
+        registerObservers()
+        let scope = SessionScope.current
+        Task { [weak self] in
+            guard scope.isCurrent else { return }
+            await self?.reload(scope: scope)
+        }
+    }
+
+    private func loadLocal() {
+        isLoading = true
+        defer { isLoading = false }
+        loadedScope = .current
         let loadedState = Self.loadAPIProvidersState()
         let availableOptions = Self.makeOptions(local: LocalModelRegistry.current, apiProviders: loadedState.profiles)
 
         let selectedID: String
-        if let saved = UserDefaults.standard.string(forKey: Self.storageKey),
+        if let saved = ScopedDefaults.standard.string(forKey: Self.storageKey),
            availableOptions.contains(where: { $0.id == saved }) {
             selectedID = saved
         } else if let migrated = loadedState.migratedSelectionID,
                   availableOptions.contains(where: { $0.id == migrated }) {
             selectedID = migrated
-            UserDefaults.standard.set(migrated, forKey: Self.storageKey)
+            ScopedDefaults.standard.set(migrated, forKey: Self.storageKey)
         } else {
             let preferred = availableOptions.first(where: { $0.backend != .localQwen }) ?? availableOptions.first
             selectedID = preferred?.id ?? "local-qwen"
-            UserDefaults.standard.set(selectedID, forKey: Self.storageKey)
+            ScopedDefaults.standard.set(selectedID, forKey: Self.storageKey)
         }
 
-        let storedTokens = UserDefaults.standard.integer(forKey: Self.tokensStorageKey)
+        let storedTokens = ScopedDefaults.standard.integer(forKey: Self.tokensStorageKey)
         let tokenLimit: Int
         if storedTokens == 0 {
             tokenLimit = 96
-            UserDefaults.standard.set(96, forKey: Self.tokensStorageKey)
+            ScopedDefaults.standard.set(96, forKey: Self.tokensStorageKey)
         } else {
             tokenLimit = Self.clampTokenLimit(storedTokens)
         }
 
-        let storedMode = UserDefaults.standard.string(forKey: Self.reasoningStorageKey)
+        let storedMode = ScopedDefaults.standard.string(forKey: Self.reasoningStorageKey)
         let reasoningRaw: String
         if let storedMode, GideonReasoningMode(rawValue: storedMode) != nil {
             reasoningRaw = storedMode
         } else {
             reasoningRaw = GideonReasoningMode.balanced.rawValue
-            UserDefaults.standard.set(reasoningRaw, forKey: Self.reasoningStorageKey)
+            ScopedDefaults.standard.set(reasoningRaw, forKey: Self.reasoningStorageKey)
         }
 
         self.apiProviders = loadedState.profiles
         self.selectedModelID = selectedID
         self.maxNewTokens = tokenLimit
         self.reasoningModeRawValue = reasoningRaw
+    }
 
-        Task { await refreshDiscoveredModels() }
+    private func registerObservers() {
+        for name in [Notification.Name.gideonSessionChanged, .gideonDataModeChanged] {
+            observerTokens.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    // Root has activated the new generation; replace personal state
+                    // synchronously before any cloud or discovery work can start.
+                    self.loadLocal()
+                    let scope = SessionScope.current
+                    Task { [weak self] in
+                        guard scope.isCurrent else { return }
+                        await self?.reload(scope: scope)
+                    }
+                }
+            })
+        }
     }
 
     var selectedOptionIndex: Int {
@@ -375,6 +413,8 @@ final class GideonModelSelectionStore: ObservableObject {
     }
 
     func removeAPIProvider(id: UUID) async {
+        let scope = SessionScope.current
+        guard scope.isCurrent, loadedScope == scope else { return }
         guard apiProviders.contains(where: { $0.id == id }) else { return }
 
         apiProviders.removeAll { $0.id == id }
@@ -390,7 +430,8 @@ final class GideonModelSelectionStore: ObservableObject {
         }
 
         persistAPIProviders()
-        await CloudCredentialStore.shared.remove(ownerID: id.uuidString, kind: "api_key")
+        await CloudCredentialStore.shared.remove(ownerID: id.uuidString, kind: "api_key", expectedScope: scope)
+        guard scope.isCurrent else { return }
         objectWillChange.send()
     }
 
@@ -406,6 +447,8 @@ final class GideonModelSelectionStore: ObservableObject {
         apiKey: String,
         customModelIdentifiers: [String]
     ) async -> Bool {
+        let scope = SessionScope.current
+        guard scope.isCurrent, loadedScope == scope else { return false }
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedProvider = provider.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedURL = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -430,6 +473,7 @@ final class GideonModelSelectionStore: ObservableObject {
             endpoint: trimmedURL,
             apiKey: trimmedAPIKey
         )
+        guard scope.isCurrent else { return false }
         let effectiveModels = Self.normalizeCustomModels(discoveredModels + normalizedCustomModels)
 
         let profile = GideonAPIProviderProfile(
@@ -456,19 +500,29 @@ final class GideonModelSelectionStore: ObservableObject {
         await CloudCredentialStore.shared.store(
             ownerID: profile.id.uuidString,
             kind: "api_key",
-            value: trimmedAPIKey
+            value: trimmedAPIKey,
+            expectedScope: scope
         )
+        guard scope.isCurrent else { return false }
         objectWillChange.send()
         return true
     }
 
     func refreshDiscoveredModels() async {
+        let scope = SessionScope.current
+        await refreshDiscoveredModels(scope: scope)
+    }
+
+    private func refreshDiscoveredModels(scope: SessionScope) async {
+        guard scope.isCurrent, loadedScope == scope else { return }
         guard !apiProviders.isEmpty else { return }
 
+        let originalProfiles = apiProviders
         var updatedProfiles = apiProviders
         var didChange = false
 
         for index in updatedProfiles.indices {
+            guard scope.isCurrent, apiProviders == originalProfiles else { return }
             let profile = updatedProfiles[index]
             let apiKey = (try? SecureKeyStore.shared.read(key: Self.apiKeyLookupKey(for: profile.id))) ?? nil
             let trimmedAPIKey = apiKey?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -477,6 +531,7 @@ final class GideonModelSelectionStore: ObservableObject {
                 endpoint: profile.baseURL,
                 apiKey: trimmedAPIKey
             )
+            guard scope.isCurrent, apiProviders == originalProfiles else { return }
             guard !discoveredModels.isEmpty else {
                 continue
             }
@@ -526,6 +581,7 @@ final class GideonModelSelectionStore: ObservableObject {
     }
 
     func resolveAPIModelConfig(for optionID: String) -> (endpoint: URL, apiKey: String, modelID: String, provider: String)? {
+        guard loadedScope.isCurrent else { return nil }
         guard let parsed = Self.parseAPIModelOptionID(optionID),
               let profile = apiProviders.first(where: { $0.id == parsed.providerID }) else {
             return nil
@@ -545,7 +601,7 @@ final class GideonModelSelectionStore: ObservableObject {
     }
 
     private static func loadAPIProvidersState() -> LoadedAPIProvidersState {
-        if let data = UserDefaults.standard.data(forKey: apiProvidersStorageKey),
+        if let data = ScopedDefaults.standard.data(forKey: apiProvidersStorageKey),
            let decoded = try? JSONDecoder().decode([GideonAPIProviderProfile].self, from: data) {
             return LoadedAPIProvidersState(profiles: decoded, migratedSelectionID: nil)
         }
@@ -554,7 +610,9 @@ final class GideonModelSelectionStore: ObservableObject {
     }
 
     private static func migrateLegacyAPIModels() -> LoadedAPIProvidersState {
-        guard let data = UserDefaults.standard.data(forKey: legacyAPIModelsStorageKey),
+        // Only migrate already-owned legacy records. Raw defaults and Keychain
+        // entries remain untouched for manual recovery.
+        guard let data = ScopedDefaults.standard.data(forKey: legacyAPIModelsStorageKey),
               let decoded = try? JSONDecoder().decode([LegacyGideonAPIModelProfile].self, from: data),
               !decoded.isEmpty else {
             return LoadedAPIProvidersState(profiles: [], migratedSelectionID: nil)
@@ -605,10 +663,10 @@ final class GideonModelSelectionStore: ObservableObject {
         }
 
         if let encoded = try? JSONEncoder().encode(migratedProfiles) {
-            UserDefaults.standard.set(encoded, forKey: apiProvidersStorageKey)
+            ScopedDefaults.standard.set(encoded, forKey: apiProvidersStorageKey)
         }
 
-        let savedSelection = UserDefaults.standard.string(forKey: storageKey)
+        let savedSelection = ScopedDefaults.standard.string(forKey: storageKey)
         return LoadedAPIProvidersState(
             profiles: migratedProfiles.sorted { $0.createdAt < $1.createdAt },
             migratedSelectionID: savedSelection.flatMap { selectionMap[$0] }
@@ -616,31 +674,40 @@ final class GideonModelSelectionStore: ObservableObject {
     }
 
     func reloadFromCurrentMode() async {
-        let localProfiles = Self.loadAPIProvidersState().profiles
-        if AppDataModeStore.shared.mode == .local {
-            apiProviders = localProfiles
-            return
-        }
+        let scope = SessionScope.current
+        guard scope.isCurrent else { return }
+        loadLocal()
+        await reload(scope: scope)
+    }
 
-        guard AppSessionStore.shared.isAuthenticated,
-              AppSessionStore.shared.currentUserID != nil else {
-            apiProviders = localProfiles
-            return
+    private func reload(scope: SessionScope) async {
+        guard scope.isCurrent else { return }
+        if scope.canSyncCloud {
+            await loadCloud(scope: scope)
+            guard scope.isCurrent else { return }
         }
-
-        await loadCloud()
+        await refreshDiscoveredModels(scope: scope)
     }
 
     private func persistAPIProviders() {
+        guard !isLoading, loadedScope.isCurrent else { return }
         guard let data = try? JSONEncoder().encode(apiProviders) else { return }
-        UserDefaults.standard.set(data, forKey: Self.apiProvidersStorageKey)
-        Task { [profiles = apiProviders] in
-            await self.persistCloudProfiles(profiles)
+        ScopedDefaults.standard.set(data, forKey: Self.apiProvidersStorageKey)
+        scheduleCloudPersistence()
+    }
+
+    private func scheduleCloudPersistence() {
+        let scope = SessionScope.current
+        guard !isLoading, loadedScope == scope, scope.isCurrent, scope.canSyncCloud else { return }
+        Task { [profiles = apiProviders, modelID = selectedModelID] in
+            guard scope.isCurrent else { return }
+            await self.persistCloudSelection(modelID, profiles: profiles, scope: scope)
         }
     }
 
-    private func loadCloud() async {
-        guard let userID = AppSessionStore.shared.currentUserID,
+    private func loadCloud(scope: SessionScope) async {
+        guard scope.isCurrent, scope.canSyncCloud,
+              let userID = scope.userID,
               let token = AppSessionStore.shared.currentAccessToken,
               let url = URL(string: "\(AppSessionStore.supabaseRESTURL)/user_model_preferences?user_id=eq.\(userID)&select=*&limit=1") else {
             return
@@ -655,6 +722,7 @@ final class GideonModelSelectionStore: ObservableObject {
 
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
+            guard scope.isCurrent else { return }
             guard let http = response as? HTTPURLResponse,
                   (200..<300).contains(http.statusCode) else {
                 return
@@ -663,25 +731,23 @@ final class GideonModelSelectionStore: ObservableObject {
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
             let rows = try decoder.decode([SupabaseModelPreferenceDTO].self, from: data)
-            guard let row = rows.first else {
-                return
-            }
-
-            let profilesData = row.apiProfilesJSON.data(using: .utf8) ?? Data()
+            guard rows.allSatisfy({ $0.userID.lowercased() == userID }) else { return }
+            let row = rows.first
+            let profilesData = row?.apiProfilesJSON.data(using: .utf8) ?? Data()
             let profiles = (try? JSONDecoder().decode([GideonAPIProviderProfile].self, from: profilesData)) ?? []
-            if !profiles.isEmpty {
-                apiProviders = profiles
-                if let encoded = try? JSONEncoder().encode(profiles) {
-                    UserDefaults.standard.set(encoded, forKey: Self.apiProvidersStorageKey)
-                }
+            // Restoring preferences is not a user edit and must not POST defaults.
+            isLoading = true
+            apiProviders = profiles
+            if let encoded = try? JSONEncoder().encode(profiles) {
+                ScopedDefaults.standard.set(encoded, forKey: Self.apiProvidersStorageKey)
             }
-
-            if !row.selectedModelID.isEmpty,
-               Self.makeOptions(local: LocalModelRegistry.current, apiProviders: apiProviders)
-                   .contains(where: { $0.id == row.selectedModelID }) {
-                selectedModelID = row.selectedModelID
-                UserDefaults.standard.set(row.selectedModelID, forKey: Self.storageKey)
+            if let selected = row?.selectedModelID, options.contains(where: { $0.id == selected }) {
+                selectedModelID = selected
+            } else {
+                selectedModelID = "local-qwen"
             }
+            ScopedDefaults.standard.set(selectedModelID, forKey: Self.storageKey)
+            isLoading = false
 
             await CloudCredentialStore.shared.reconcile(
                 apiProviders.map { profile in
@@ -690,22 +756,25 @@ final class GideonModelSelectionStore: ObservableObject {
                         kind: "api_key",
                         keychainKey: Self.apiKeyLookupKey(for: profile.id)
                     )
-                }
+                },
+                expectedScope: scope
             )
+            guard scope.isCurrent else { return }
             objectWillChange.send()
         } catch {
             // Keep local state if cloud data is unavailable.
         }
     }
 
-    private func persistCloudSelection(_ modelID: String) async {
-        guard let userID = AppSessionStore.shared.currentUserID,
+    private func persistCloudSelection(_ modelID: String, profiles: [GideonAPIProviderProfile], scope: SessionScope) async {
+        guard scope.isCurrent, scope.canSyncCloud,
+              let userID = scope.userID,
               let token = AppSessionStore.shared.currentAccessToken,
               let url = URL(string: "\(AppSessionStore.supabaseRESTURL)/user_model_preferences?on_conflict=user_id") else {
             return
         }
 
-        let apiProfilesJSON = (try? JSONEncoder().encode(apiProviders)).flatMap { data in
+        let apiProfilesJSON = (try? JSONEncoder().encode(profiles)).flatMap { data in
             String(data: data, encoding: .utf8)
         } ?? "[]"
 
@@ -728,13 +797,10 @@ final class GideonModelSelectionStore: ObservableObject {
             request.setValue("return=minimal, resolution=merge-duplicates", forHTTPHeaderField: "Prefer")
             request.httpBody = try encoder.encode(payload)
             _ = try await URLSession.shared.data(for: request)
+            guard scope.isCurrent else { return }
         } catch {
             // Keep local state if cloud sync is unavailable; local cache remains source-of-truth.
         }
-    }
-
-    private func persistCloudProfiles(_ profiles: [GideonAPIProviderProfile]) async {
-        await persistCloudSelection(selectedModelID)
     }
 
     private static func normalizeURL(_ rawValue: String) -> URL? {
@@ -1210,11 +1276,11 @@ final class GideonModelSelectionStore: ObservableObject {
     }
 
     private static func apiKeyLookupKey(for providerID: UUID) -> String {
-        "\(apiProviderKeyPrefix)\(providerID.uuidString.lowercased())"
+        SessionScope.current.key("\(apiProviderKeyPrefix)\(providerID.uuidString.lowercased())")
     }
 
     private static func legacyAPIKeyLookupKey(for modelID: UUID) -> String {
-        "\(legacyAPIModelKeyPrefix)\(modelID.uuidString.lowercased())"
+        SessionScope.current.key("\(legacyAPIModelKeyPrefix)\(modelID.uuidString.lowercased())")
     }
 
     private static func legacyModelOptionID(for modelID: UUID) -> String {

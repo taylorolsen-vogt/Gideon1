@@ -34,13 +34,17 @@ final class ProviderConnectionStore: ObservableObject {
 
     @Published private(set) var records: [ProviderConnectionRecord]
     private var observerTokens: [NSObjectProtocol] = []
+    private var loadedScope: SessionScope?
+    private let session = URLSession(configuration: ProviderNetworkSession.makeConfiguration())
 
     private static let storageKey = "gideon.providerConnections.v1"
 
     private init() {
         self.records = Self.loadLocalRecords()
+        loadedScope = .current
         registerObservers()
-        Task { await reloadFromCurrentMode() }
+        let scope = SessionScope.current
+        Task { await reloadFromCurrentMode(expectedScope: scope) }
     }
 
     var connectedCount: Int {
@@ -52,6 +56,7 @@ final class ProviderConnectionStore: ObservableObject {
     }
 
     func record(for providerName: String) -> ProviderConnectionRecord {
+        if loadedScope?.isCurrent != true { loadLocal() }
         let key = normalizedID(for: providerName)
         if let existing = records.first(where: { $0.id == key }) {
             return existing
@@ -81,7 +86,16 @@ final class ProviderConnectionStore: ObservableObject {
         update(providerName: providerName, state: .error, detail: detail)
     }
 
-    func verifyConnection(providerName: String, endpoint: String, apiKey: String, modelIdentifier: String) async -> (ok: Bool, message: String) {
+    func verifyConnection(providerName: String, endpoint: String, apiKey: String, modelIdentifier: String, expectedScope: SessionScope? = nil) async -> (ok: Bool, message: String) {
+        let scope = expectedScope ?? .current
+        guard scope.isCurrent else { return (false, "Session changed") }
+        let result = await verifyConnection(providerName: providerName, endpoint: endpoint, apiKey: apiKey, scope: scope)
+        guard scope.isCurrent else { return (false, "Session changed") }
+        return result
+    }
+
+    private func verifyConnection(providerName: String, endpoint: String, apiKey: String, scope: SessionScope) async -> (ok: Bool, message: String) {
+        guard scope.isCurrent else { return (false, "Session changed") }
         let providerID = normalizedID(for: providerName)
         let trimmedEndpoint = endpoint.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -90,14 +104,14 @@ final class ProviderConnectionStore: ObservableObject {
             guard !trimmedKey.isEmpty else {
                 return (false, "Missing API key")
             }
-            return await verifyGitHubPAT(apiKey: trimmedKey)
+            return await verifyGitHubPAT(apiKey: trimmedKey, scope: scope)
         }
 
         if providerID.contains("gmail") || providerID == "google" || providerID.contains("google-mail") {
             guard !trimmedKey.isEmpty else {
                 return (false, "Missing API key")
             }
-            return await verifyGmailAccessToken(apiKey: trimmedKey)
+            return await verifyGmailAccessToken(apiKey: trimmedKey, scope: scope)
         }
 
         guard !trimmedEndpoint.isEmpty else {
@@ -112,20 +126,29 @@ final class ProviderConnectionStore: ObservableObject {
             guard !trimmedKey.isEmpty else {
                 return (false, "Missing API key")
             }
-            return await verifyAnthropic(baseURL: baseURL, apiKey: trimmedKey)
+            return await verifyAnthropic(baseURL: baseURL, apiKey: trimmedKey, scope: scope)
         }
 
         if providerID.contains("gemini") || providerID.contains("google") || baseURL.host?.contains("generativelanguage") == true {
             guard !trimmedKey.isEmpty else {
                 return (false, "Missing API key")
             }
-            return await verifyGemini(baseURL: baseURL, apiKey: trimmedKey)
+            return await verifyGemini(baseURL: baseURL, apiKey: trimmedKey, scope: scope)
         }
 
-        return await verifyOpenAICompatible(baseURL: baseURL, apiKey: trimmedKey)
+        return await verifyOpenAICompatible(baseURL: baseURL, apiKey: trimmedKey, scope: scope)
     }
 
-    func availableModelIdentifiers(providerName: String, endpoint: String, apiKey: String) async -> [String] {
+    func availableModelIdentifiers(providerName: String, endpoint: String, apiKey: String, expectedScope: SessionScope? = nil) async -> [String] {
+        let scope = expectedScope ?? .current
+        guard scope.isCurrent else { return [] }
+        let result = await availableModelIdentifiers(providerName: providerName, endpoint: endpoint, apiKey: apiKey, scope: scope)
+        guard scope.isCurrent else { return [] }
+        return result
+    }
+
+    private func availableModelIdentifiers(providerName: String, endpoint: String, apiKey: String, scope: SessionScope) async -> [String] {
+        guard scope.isCurrent else { return [] }
         let providerID = normalizedID(for: providerName)
         let trimmedEndpoint = endpoint.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -136,14 +159,14 @@ final class ProviderConnectionStore: ObservableObject {
         }
 
         if providerID.contains("anthropic") || providerID.contains("claude") {
-            return await fetchAnthropicModelIdentifiers(baseURL: baseURL, apiKey: trimmedKey)
+            return await fetchAnthropicModelIdentifiers(baseURL: baseURL, apiKey: trimmedKey, scope: scope)
         }
 
         if providerID.contains("gemini") || providerID.contains("google") || baseURL.host?.contains("generativelanguage") == true {
-            return await fetchGeminiModelIdentifiers(baseURL: baseURL, apiKey: trimmedKey)
+            return await fetchGeminiModelIdentifiers(baseURL: baseURL, apiKey: trimmedKey, scope: scope)
         }
 
-        return await fetchOpenAICompatibleModelIdentifiers(baseURL: baseURL, apiKey: trimmedKey)
+        return await fetchOpenAICompatibleModelIdentifiers(baseURL: baseURL, apiKey: trimmedKey, scope: scope)
     }
 
     func portalURL(for providerName: String) -> URL {
@@ -175,6 +198,7 @@ final class ProviderConnectionStore: ObservableObject {
     }
 
     private func update(providerName: String, state: ProviderConnectionRecord.State, detail: String) {
+        if loadedScope?.isCurrent != true { loadLocal() }
         let key = normalizedID(for: providerName)
         if let index = records.firstIndex(where: { $0.id == key }) {
             records[index].state = state
@@ -194,7 +218,8 @@ final class ProviderConnectionStore: ObservableObject {
         persist()
     }
 
-    private func verifyOpenAICompatible(baseURL: URL, apiKey: String) async -> (ok: Bool, message: String) {
+    private func verifyOpenAICompatible(baseURL: URL, apiKey: String, scope: SessionScope) async -> (ok: Bool, message: String) {
+        guard scope.isCurrent else { return (false, "Session changed") }
         guard let verifyURL = modelsURL(from: baseURL) else {
             return (false, "Invalid provider endpoint")
         }
@@ -207,7 +232,8 @@ final class ProviderConnectionStore: ObservableObject {
         }
 
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await session.data(for: request)
+            guard scope.isCurrent else { return (false, "Session changed") }
             guard let http = response as? HTTPURLResponse else {
                 return (false, "Invalid verification response")
             }
@@ -229,7 +255,8 @@ final class ProviderConnectionStore: ObservableObject {
         }
     }
 
-    private func fetchOpenAICompatibleModelIdentifiers(baseURL: URL, apiKey: String) async -> [String] {
+    private func fetchOpenAICompatibleModelIdentifiers(baseURL: URL, apiKey: String, scope: SessionScope) async -> [String] {
+        guard scope.isCurrent else { return [] }
         guard let verifyURL = modelsURL(from: baseURL) else {
             return []
         }
@@ -242,7 +269,8 @@ final class ProviderConnectionStore: ObservableObject {
         }
 
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await session.data(for: request)
+            guard scope.isCurrent else { return [] }
             guard let http = response as? HTTPURLResponse,
                   (200..<300).contains(http.statusCode),
                   let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -256,7 +284,8 @@ final class ProviderConnectionStore: ObservableObject {
         }
     }
 
-    private func verifyGitHubPAT(apiKey: String) async -> (ok: Bool, message: String) {
+    private func verifyGitHubPAT(apiKey: String, scope: SessionScope) async -> (ok: Bool, message: String) {
+        guard scope.isCurrent else { return (false, "Session changed") }
         guard let verifyURL = URL(string: "https://api.github.com/user") else {
             return (false, "Invalid GitHub verify URL")
         }
@@ -268,7 +297,8 @@ final class ProviderConnectionStore: ObservableObject {
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
 
         do {
-            let (_, response) = try await URLSession.shared.data(for: request)
+            let (_, response) = try await session.data(for: request)
+            guard scope.isCurrent else { return (false, "Session changed") }
             guard let http = response as? HTTPURLResponse else {
                 return (false, "Invalid GitHub response")
             }
@@ -281,7 +311,8 @@ final class ProviderConnectionStore: ObservableObject {
         }
     }
 
-    private func verifyGmailAccessToken(apiKey: String) async -> (ok: Bool, message: String) {
+    private func verifyGmailAccessToken(apiKey: String, scope: SessionScope) async -> (ok: Bool, message: String) {
+        guard scope.isCurrent else { return (false, "Session changed") }
         guard let verifyURL = URL(string: "https://gmail.googleapis.com/gmail/v1/users/me/profile") else {
             return (false, "Invalid Gmail verify URL")
         }
@@ -292,7 +323,8 @@ final class ProviderConnectionStore: ObservableObject {
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
 
         do {
-            let (_, response) = try await URLSession.shared.data(for: request)
+            let (_, response) = try await session.data(for: request)
+            guard scope.isCurrent else { return (false, "Session changed") }
             guard let http = response as? HTTPURLResponse else {
                 return (false, "Invalid Gmail response")
             }
@@ -308,7 +340,8 @@ final class ProviderConnectionStore: ObservableObject {
         }
     }
 
-    private func verifyAnthropic(baseURL: URL, apiKey: String) async -> (ok: Bool, message: String) {
+    private func verifyAnthropic(baseURL: URL, apiKey: String, scope: SessionScope) async -> (ok: Bool, message: String) {
+        guard scope.isCurrent else { return (false, "Session changed") }
         guard let verifyURL = modelsURL(from: baseURL) else {
             return (false, "Invalid Anthropic endpoint")
         }
@@ -320,7 +353,8 @@ final class ProviderConnectionStore: ObservableObject {
         request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
 
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await session.data(for: request)
+            guard scope.isCurrent else { return (false, "Session changed") }
             guard let http = response as? HTTPURLResponse else {
                 return (false, "Invalid verification response")
             }
@@ -342,7 +376,8 @@ final class ProviderConnectionStore: ObservableObject {
         }
     }
 
-    private func fetchAnthropicModelIdentifiers(baseURL: URL, apiKey: String) async -> [String] {
+    private func fetchAnthropicModelIdentifiers(baseURL: URL, apiKey: String, scope: SessionScope) async -> [String] {
+        guard scope.isCurrent else { return [] }
         guard !apiKey.isEmpty,
               let verifyURL = modelsURL(from: baseURL) else {
             return []
@@ -355,7 +390,8 @@ final class ProviderConnectionStore: ObservableObject {
         request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
 
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await session.data(for: request)
+            guard scope.isCurrent else { return [] }
             guard let http = response as? HTTPURLResponse,
                   (200..<300).contains(http.statusCode),
                   let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -369,7 +405,8 @@ final class ProviderConnectionStore: ObservableObject {
         }
     }
 
-    private func verifyGemini(baseURL: URL, apiKey: String) async -> (ok: Bool, message: String) {
+    private func verifyGemini(baseURL: URL, apiKey: String, scope: SessionScope) async -> (ok: Bool, message: String) {
+        guard scope.isCurrent else { return (false, "Session changed") }
         guard let verifyURL = geminiModelsURL(from: baseURL) else {
             return (false, "Invalid Gemini endpoint")
         }
@@ -380,7 +417,8 @@ final class ProviderConnectionStore: ObservableObject {
         request.setValue(apiKey, forHTTPHeaderField: "x-goog-api-key")
 
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await session.data(for: request)
+            guard scope.isCurrent else { return (false, "Session changed") }
             guard let http = response as? HTTPURLResponse else {
                 return (false, "Invalid verification response")
             }
@@ -407,7 +445,8 @@ final class ProviderConnectionStore: ObservableObject {
         }
     }
 
-    private func fetchGeminiModelIdentifiers(baseURL: URL, apiKey: String) async -> [String] {
+    private func fetchGeminiModelIdentifiers(baseURL: URL, apiKey: String, scope: SessionScope) async -> [String] {
+        guard scope.isCurrent else { return [] }
         guard !apiKey.isEmpty,
               let modelsURL = geminiModelsURL(from: baseURL) else {
             return []
@@ -419,7 +458,7 @@ final class ProviderConnectionStore: ObservableObject {
         var seenTokens: Set<String> = []
         do {
             for _ in 0..<3 {
-                try Task.checkCancellation()
+                guard scope.isCurrent else { return [] }
                 var components = URLComponents(url: modelsURL, resolvingAgainstBaseURL: false)
                 if let pageToken {
                     components?.queryItems = [URLQueryItem(name: "pageToken", value: pageToken)]
@@ -430,8 +469,8 @@ final class ProviderConnectionStore: ObservableObject {
                 request.timeoutInterval = 25
                 request.setValue(apiKey, forHTTPHeaderField: "x-goog-api-key")
 
-                let (data, response) = try await URLSession.shared.data(for: request)
-                try Task.checkCancellation()
+                let (data, response) = try await session.data(for: request)
+                guard scope.isCurrent else { return [] }
                 guard let http = response as? HTTPURLResponse,
                       (200..<300).contains(http.statusCode),
                       let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -543,34 +582,35 @@ final class ProviderConnectionStore: ObservableObject {
     }
 
     private func persist() {
-        switch AppDataModeStore.shared.mode {
-        case .local:
-            persistLocal()
-        case .cloud:
-            persistLocal()
+        guard loadedScope?.isCurrent == true else { return }
+        let scope = SessionScope.current
+        persistLocal()
+        if scope.canSyncCloud {
             Task { [snapshot = records] in
-                await persistCloud(snapshot: snapshot)
+                guard scope.isCurrent else { return }
+                await persistCloud(snapshot: snapshot, scope: scope)
             }
         }
     }
 
     private func persistLocal() {
-        guard let data = try? JSONEncoder().encode(records) else {
+        guard loadedScope?.isCurrent == true, let data = try? JSONEncoder().encode(records) else {
             return
         }
-        UserDefaults.standard.set(data, forKey: Self.storageKey)
+        ScopedDefaults.standard.set(data, forKey: Self.storageKey)
     }
 
     private static func loadLocalRecords() -> [ProviderConnectionRecord] {
-        if let data = UserDefaults.standard.data(forKey: storageKey),
-           let decoded = try? JSONDecoder().decode([ProviderConnectionRecord].self, from: data),
-           !decoded.isEmpty {
+          if let data = ScopedDefaults.standard.data(forKey: storageKey),
+              let decoded = try? JSONDecoder().decode([ProviderConnectionRecord].self, from: data) {
             return decoded
         }
         return defaultRecords
     }
 
     private func loadLocal() {
+        records = []
+        loadedScope = .current
         records = Self.loadLocalRecords()
     }
 
@@ -578,30 +618,36 @@ final class ProviderConnectionStore: ObservableObject {
         let center = NotificationCenter.default
         observerTokens.append(
             center.addObserver(forName: .gideonDataModeChanged, object: nil, queue: .main) { [weak self] _ in
-                guard let self else { return }
-                Task { await self.reloadFromCurrentMode() }
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.loadLocal()
+                    let scope = SessionScope.current
+                    Task { await self.reloadFromCurrentMode(expectedScope: scope) }
+                }
             }
         )
         observerTokens.append(
             center.addObserver(forName: .gideonSessionChanged, object: nil, queue: .main) { [weak self] _ in
-                guard let self else { return }
-                Task { await self.reloadFromCurrentMode() }
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.loadLocal()
+                    let scope = SessionScope.current
+                    Task { await self.reloadFromCurrentMode(expectedScope: scope) }
+                }
             }
         )
     }
 
-    func reloadFromCurrentMode() async {
+    func reloadFromCurrentMode(expectedScope: SessionScope? = nil) async {
+        let scope = expectedScope ?? .current
+        guard scope.isCurrent else { return }
         loadLocal()
-        switch AppDataModeStore.shared.mode {
-        case .local:
-            loadLocal()
-        case .cloud:
-            await loadCloud()
-        }
+        if scope.canSyncCloud { await loadCloud(scope: scope) }
     }
 
-    private func loadCloud() async {
-        guard let userID = AppSessionStore.shared.currentUserID,
+    private func loadCloud(scope: SessionScope) async {
+        guard scope.isCurrent, scope.canSyncCloud else { return }
+        guard let userID = scope.userID,
               let token = AppSessionStore.shared.currentAccessToken,
               let url = URL(string: "\(AppSessionStore.supabaseRESTURL)/provider_connections?user_id=eq.\(userID)&select=*&order=last_updated.desc") else {
             loadLocal()
@@ -616,7 +662,8 @@ final class ProviderConnectionStore: ObservableObject {
         request.setValue("application/json", forHTTPHeaderField: "Accept")
 
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await session.data(for: request)
+            guard scope.isCurrent else { return }
             guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
                 return
             }
@@ -624,7 +671,7 @@ final class ProviderConnectionStore: ObservableObject {
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
             let rows = try decoder.decode([SupabaseProviderConnectionDTO].self, from: data)
-            let cloudRecords = rows.compactMap { $0.toRecord() }
+            let cloudRecords = rows.filter { $0.userID.lowercased() == userID.lowercased() }.compactMap { $0.toRecord() }
 
             records = cloudRecords
             persistLocal()
@@ -633,8 +680,9 @@ final class ProviderConnectionStore: ObservableObject {
         }
     }
 
-    private func persistCloud(snapshot: [ProviderConnectionRecord]) async {
-        guard let userID = AppSessionStore.shared.currentUserID,
+    private func persistCloud(snapshot: [ProviderConnectionRecord], scope: SessionScope) async {
+        guard scope.isCurrent, scope.canSyncCloud,
+              let userID = scope.userID,
               let token = AppSessionStore.shared.currentAccessToken,
               !snapshot.isEmpty,
               let insertURL = URL(string: "\(AppSessionStore.supabaseRESTURL)/provider_connections?on_conflict=user_id,id") else {
@@ -655,7 +703,8 @@ final class ProviderConnectionStore: ObservableObject {
             insertRequest.setValue("return=minimal, resolution=merge-duplicates", forHTTPHeaderField: "Prefer")
             insertRequest.httpBody = try encoder.encode(payload)
 
-            let (_, response) = try await URLSession.shared.data(for: insertRequest)
+            let (_, response) = try await session.data(for: insertRequest)
+            guard scope.isCurrent else { return }
             guard let http = response as? HTTPURLResponse,
                   (200..<300).contains(http.statusCode) else {
                 print("[Gideon] provider connection cloud insert failed for user \(userID)")

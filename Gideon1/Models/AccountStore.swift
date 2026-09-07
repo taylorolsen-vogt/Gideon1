@@ -16,8 +16,8 @@ struct AccountRecord: Identifiable, Codable, Sendable {
     let addedAt: Date
 
     /// Key used to store the API key / token in Keychain.
-    var keychainKey: String { "gideon.account.\(id.uuidString)" }
-    var refreshTokenKey: String { "\(keychainKey).refreshToken" }
+    @MainActor var keychainKey: String { SessionScope.current.key("gideon.account.\(id.uuidString)") }
+    @MainActor var refreshTokenKey: String { SessionScope.current.key("gideon.account.\(id.uuidString).refreshToken") }
 }
 
 @MainActor
@@ -26,13 +26,15 @@ final class AccountStore: ObservableObject {
 
     @Published private(set) var accounts: [AccountRecord] = []
     private var observerTokens: [NSObjectProtocol] = []
+    private var loadedScope: SessionScope?
 
     private static let storageKey = "gideon.accounts.v1"
 
     private init() {
         loadLocal()
         registerObservers()
-        Task { await reloadFromCurrentMode() }
+        let scope = SessionScope.current
+        Task { await reloadFromCurrentMode(expectedScope: scope) }
     }
 
     // MARK: - Public API
@@ -47,6 +49,8 @@ final class AccountStore: ObservableObject {
         apiKey: String,
         refreshToken: String = ""
     ) -> AccountRecord {
+        if loadedScope?.isCurrent != true { loadLocal() }
+        let scope = SessionScope.current
         let record = AccountRecord(
             id: UUID(),
             name: name.isEmpty ? service : name,
@@ -65,94 +69,117 @@ final class AccountStore: ObservableObject {
         accounts.append(record)
         persist()
         Task {
-            await CloudCredentialStore.shared.store(ownerID: record.id.uuidString, kind: "access_token", value: apiKey)
-            await CloudCredentialStore.shared.store(ownerID: record.id.uuidString, kind: "refresh_token", value: refreshToken)
+            guard scope.isCurrent else { return }
+            await CloudCredentialStore.shared.store(ownerID: record.id.uuidString, kind: "access_token", value: apiKey, expectedScope: scope)
+            guard scope.isCurrent else { return }
+            await CloudCredentialStore.shared.store(ownerID: record.id.uuidString, kind: "refresh_token", value: refreshToken, expectedScope: scope)
         }
         return record
     }
 
     func remove(id: UUID) {
-        guard let record = accounts.first(where: { $0.id == id }) else { return }
+        let scope = SessionScope.current
+        guard loadedScope?.isCurrent == true,
+              let record = accounts.first(where: { $0.id == id }) else { return }
         try? SecureKeyStore.shared.delete(key: record.keychainKey)
         try? SecureKeyStore.shared.delete(key: record.refreshTokenKey)
         accounts.removeAll { $0.id == id }
         persist()
         Task {
-            await deleteCloud(id: id)
-            await CloudCredentialStore.shared.remove(ownerID: id.uuidString, kind: "access_token")
-            await CloudCredentialStore.shared.remove(ownerID: id.uuidString, kind: "refresh_token")
+            guard scope.isCurrent else { return }
+            await deleteCloud(id: id, scope: scope)
+            guard scope.isCurrent else { return }
+            await CloudCredentialStore.shared.remove(ownerID: id.uuidString, kind: "access_token", expectedScope: scope)
+            guard scope.isCurrent else { return }
+            await CloudCredentialStore.shared.remove(ownerID: id.uuidString, kind: "refresh_token", expectedScope: scope)
         }
     }
 
     /// Reads the stored API key / token for an account from Keychain.
-    func apiKey(for record: AccountRecord) -> String? {
-        try? SecureKeyStore.shared.read(key: record.keychainKey)
+    func apiKey(for record: AccountRecord, expectedScope: SessionScope? = nil) -> String? {
+        guard (expectedScope ?? .current).isCurrent,
+              loadedScope?.isCurrent == true, accounts.contains(where: { $0.id == record.id }) else { return nil }
+        return try? SecureKeyStore.shared.read(key: record.keychainKey)
     }
 
-    func refreshToken(for record: AccountRecord) -> String? {
-        try? SecureKeyStore.shared.read(key: record.refreshTokenKey)
+    func refreshToken(for record: AccountRecord, expectedScope: SessionScope? = nil) -> String? {
+        guard (expectedScope ?? .current).isCurrent,
+              loadedScope?.isCurrent == true, accounts.contains(where: { $0.id == record.id }) else { return nil }
+        return try? SecureKeyStore.shared.read(key: record.refreshTokenKey)
     }
 
-    func updateAccessToken(_ token: String, for record: AccountRecord) {
+    func updateAccessToken(_ token: String, for record: AccountRecord, expectedScope: SessionScope? = nil) {
+        let scope = expectedScope ?? .current
+        guard scope.isCurrent, loadedScope?.isCurrent == true,
+              accounts.contains(where: { $0.id == record.id }) else { return }
         try? SecureKeyStore.shared.write(key: record.keychainKey, value: token)
         Task {
-            await CloudCredentialStore.shared.store(ownerID: record.id.uuidString, kind: "access_token", value: token)
+            guard scope.isCurrent else { return }
+            await CloudCredentialStore.shared.store(ownerID: record.id.uuidString, kind: "access_token", value: token, expectedScope: scope)
         }
     }
 
     // MARK: - Persistence
 
     private func loadLocal() {
-        guard let data = UserDefaults.standard.data(forKey: Self.storageKey),
+        accounts = []
+        loadedScope = .current
+        guard let data = ScopedDefaults.standard.data(forKey: Self.storageKey),
               let decoded = try? JSONDecoder().decode([AccountRecord].self, from: data) else { return }
         accounts = decoded
     }
 
     private func persist() {
-        switch AppDataModeStore.shared.mode {
-        case .local:
-            persistLocal()
-        case .cloud:
-            persistLocal()
+        guard loadedScope?.isCurrent == true else { return }
+        let scope = SessionScope.current
+        persistLocal()
+        if scope.canSyncCloud {
             Task { [snapshot = accounts] in
-                await persistCloud(snapshot: snapshot)
+                guard scope.isCurrent else { return }
+                await persistCloud(snapshot: snapshot, scope: scope)
             }
         }
     }
 
     private func persistLocal() {
-        guard let data = try? JSONEncoder().encode(accounts) else { return }
-        UserDefaults.standard.set(data, forKey: Self.storageKey)
+        guard loadedScope?.isCurrent == true, let data = try? JSONEncoder().encode(accounts) else { return }
+        ScopedDefaults.standard.set(data, forKey: Self.storageKey)
     }
 
     private func registerObservers() {
         let center = NotificationCenter.default
         observerTokens.append(
             center.addObserver(forName: .gideonDataModeChanged, object: nil, queue: .main) { [weak self] _ in
-                guard let self else { return }
-                Task { await self.reloadFromCurrentMode() }
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.loadLocal()
+                    let scope = SessionScope.current
+                    Task { await self.reloadFromCurrentMode(expectedScope: scope) }
+                }
             }
         )
         observerTokens.append(
             center.addObserver(forName: .gideonSessionChanged, object: nil, queue: .main) { [weak self] _ in
-                guard let self else { return }
-                Task { await self.reloadFromCurrentMode() }
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.loadLocal()
+                    let scope = SessionScope.current
+                    Task { await self.reloadFromCurrentMode(expectedScope: scope) }
+                }
             }
         )
     }
 
-    func reloadFromCurrentMode() async {
+    func reloadFromCurrentMode(expectedScope: SessionScope? = nil) async {
+        let scope = expectedScope ?? .current
+        guard scope.isCurrent else { return }
         loadLocal()
-        switch AppDataModeStore.shared.mode {
-        case .local:
-            loadLocal()
-        case .cloud:
-            await loadCloud()
-        }
+        if scope.canSyncCloud { await loadCloud(scope: scope) }
     }
 
-    private func loadCloud() async {
-        guard let userID = AppSessionStore.shared.currentUserID,
+    private func loadCloud(scope: SessionScope) async {
+        guard scope.isCurrent, scope.canSyncCloud else { return }
+        guard let userID = scope.userID,
               let token = AppSessionStore.shared.currentAccessToken,
               let url = URL(string: "\(AppSessionStore.supabaseRESTURL)/accounts?user_id=eq.\(userID)&select=*&order=added_at.desc") else {
             loadLocal()
@@ -168,6 +195,7 @@ final class AccountStore: ObservableObject {
 
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
+            guard scope.isCurrent else { return }
             guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
                 return
             }
@@ -175,7 +203,7 @@ final class AccountStore: ObservableObject {
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
             let rows = try decoder.decode([SupabaseAccountDTO].self, from: data)
-            let cloudAccounts = rows.compactMap { $0.toRecord() }
+            let cloudAccounts = rows.filter { $0.userID.lowercased() == userID.lowercased() }.compactMap { $0.toRecord() }
 
             accounts = cloudAccounts
             persistLocal()
@@ -185,15 +213,17 @@ final class AccountStore: ObservableObject {
                         CloudCredentialBinding(ownerID: account.id.uuidString, kind: "access_token", keychainKey: account.keychainKey),
                         CloudCredentialBinding(ownerID: account.id.uuidString, kind: "refresh_token", keychainKey: account.refreshTokenKey)
                     ]
-                }
+                }, expectedScope: scope
             )
+            guard scope.isCurrent else { return }
         } catch {
             // Keep local cache if cloud fetch fails.
         }
     }
 
-    private func persistCloud(snapshot: [AccountRecord]) async {
-        guard let userID = AppSessionStore.shared.currentUserID,
+    private func persistCloud(snapshot: [AccountRecord], scope: SessionScope) async {
+        guard scope.isCurrent, scope.canSyncCloud,
+              let userID = scope.userID,
               let token = AppSessionStore.shared.currentAccessToken,
               !snapshot.isEmpty,
               let insertURL = URL(string: "\(AppSessionStore.supabaseRESTURL)/accounts?on_conflict=user_id,id") else {
@@ -215,6 +245,7 @@ final class AccountStore: ObservableObject {
             insertRequest.httpBody = try encoder.encode(payload)
 
             let (_, response) = try await URLSession.shared.data(for: insertRequest)
+            guard scope.isCurrent else { return }
             guard let http = response as? HTTPURLResponse,
                   (200..<300).contains(http.statusCode) else {
                 print("[Gideon] account cloud insert failed for user \(userID)")
@@ -225,9 +256,9 @@ final class AccountStore: ObservableObject {
         }
     }
 
-    private func deleteCloud(id: UUID) async {
-        guard AppDataModeStore.shared.mode == .cloud,
-              let userID = AppSessionStore.shared.currentUserID,
+    private func deleteCloud(id: UUID, scope: SessionScope) async {
+        guard scope.isCurrent, scope.canSyncCloud,
+              let userID = scope.userID,
               let token = AppSessionStore.shared.currentAccessToken,
               let url = URL(string: "\(AppSessionStore.supabaseRESTURL)/accounts?user_id=eq.\(userID)&id=eq.\(id.uuidString)") else {
             return
@@ -239,6 +270,7 @@ final class AccountStore: ObservableObject {
         request.setValue(AppSessionStore.supabasePublishableKey, forHTTPHeaderField: "apikey")
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         _ = try? await URLSession.shared.data(for: request)
+        guard scope.isCurrent else { return }
     }
 }
 

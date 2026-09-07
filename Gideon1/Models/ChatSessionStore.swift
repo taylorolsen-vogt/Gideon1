@@ -19,12 +19,37 @@ final class ChatSessionStore: ObservableObject {
     @Published var isGenerating: Bool = false
 
     private var generationTask: Task<Void, Never>?
+    private var observerTokens: [NSObjectProtocol] = []
+    private var loadedScope = SessionScope.current
 
-    deinit {
+    init() {
+        for name in [Notification.Name.gideonSessionChanged, .gideonDataModeChanged] {
+            observerTokens.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.resetForCurrentScope() }
+            })
+        }
+    }
+
+    private func resetForCurrentScope() {
         generationTask?.cancel()
+        generationTask = nil
+        composerText = ""
+        thread = []
+        isGenerating = false
+        loadedScope = .current
+    }
+
+    isolated deinit {
+        generationTask?.cancel()
+        for token in observerTokens { NotificationCenter.default.removeObserver(token) }
     }
 
     func sendCurrentMessage() {
+        guard loadedScope.isCurrent else {
+            resetForCurrentScope()
+            return
+        }
+        let scope = SessionScope.current
         let prompt = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !prompt.isEmpty, !isGenerating else { return }
 
@@ -39,9 +64,9 @@ final class ChatSessionStore: ObservableObject {
 
         generationTask?.cancel()
         generationTask = Task { [weak self] in
-            guard let self else { return }
+            guard let self, scope.isCurrent else { return }
             let result = await GideonAgentHarness.shared.respond(to: prompt, history: historyTurns)
-            guard !Task.isCancelled else { return }
+            guard scope.isCurrent else { return }
             self.thread.append(.init(role: .assistant, text: result.text))
             self.isGenerating = false
         }
@@ -262,12 +287,14 @@ final class AppProjectStore: ObservableObject {
     private static let storageKey = "gideon.projects.v2"
     private static let demoCleanupKey = "gideon.projects.demoCleanup.v1"
     private var observerTokens: [NSObjectProtocol] = []
+    private var loadedScope: SessionScope?
 
     private init() {
         load()
         removeDemoDataIfNeeded()
         registerObservers()
-        Task { await reloadFromCurrentMode() }
+        let scope = SessionScope.current
+        Task { await reloadFromCurrentMode(expectedScope: scope) }
     }
 
     func createProject(name: String, detail: String, stage: ProjectStage = .active, source: String = "Gideon") {
@@ -275,6 +302,7 @@ final class AppProjectStore: ObservableObject {
     }
 
     func createProject(name: String, detail: String, stage: ProjectStage = .active, groupName: String?, source: String = "Gideon") {
+        guard loadedScope?.isCurrent == true else { return }
         let cleanName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanName.isEmpty else { return }
 
@@ -312,10 +340,12 @@ final class AppProjectStore: ObservableObject {
     }
 
     func project(id: UUID) -> ProjectRecord? {
-        projects.first(where: { $0.id == id })
+        guard loadedScope?.isCurrent == true else { return nil }
+        return projects.first(where: { $0.id == id })
     }
 
     func updateProject(id: UUID, name: String, detail: String, summary: String, groupName: String?) {
+        guard loadedScope?.isCurrent == true else { return }
         guard let index = projects.firstIndex(where: { $0.id == id }) else { return }
         let cleanName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanName.isEmpty else { return }
@@ -332,18 +362,21 @@ final class AppProjectStore: ObservableObject {
     }
 
     func markCompleted(id: UUID) {
+        guard loadedScope?.isCurrent == true else { return }
         guard let index = projects.firstIndex(where: { $0.id == id }) else { return }
         projects[index].stage = .completed
         persist()
     }
 
     func deleteProject(id: UUID) {
+        guard loadedScope?.isCurrent == true else { return }
         projects.removeAll { $0.id == id }
         persist()
     }
 
     func activeProjects() -> [ProjectRecord] {
-        projects
+        guard loadedScope?.isCurrent == true else { return [] }
+        return projects
             .filter { $0.stage == .active }
             .sorted { $0.createdAt > $1.createdAt }
     }
@@ -383,19 +416,21 @@ final class AppProjectStore: ObservableObject {
     }
 
     private func persist() {
-        switch AppDataModeStore.shared.mode {
-        case .local:
-            persistLocal()
-        case .cloud:
-            persistLocal()
+        guard loadedScope?.isCurrent == true else { return }
+        let scope = SessionScope.current
+        persistLocal()
+        if scope.canSyncCloud {
             Task { [snapshot = projects] in
-                await persistCloud(snapshot: snapshot)
+                guard scope.isCurrent else { return }
+                await persistCloud(snapshot: snapshot, scope: scope)
             }
         }
     }
 
     private func load() {
-        guard let data = UserDefaults.standard.data(forKey: Self.storageKey),
+        projects = []
+        loadedScope = .current
+        guard let data = ScopedDefaults.standard.data(forKey: Self.storageKey),
               let decoded = try? JSONDecoder().decode([ProjectRecord].self, from: data) else {
             return
         }
@@ -403,40 +438,49 @@ final class AppProjectStore: ObservableObject {
     }
 
     private func persistLocal() {
-        guard let data = try? JSONEncoder().encode(projects) else { return }
-        UserDefaults.standard.set(data, forKey: Self.storageKey)
+        guard loadedScope?.isCurrent == true, let data = try? JSONEncoder().encode(projects) else { return }
+        ScopedDefaults.standard.set(data, forKey: Self.storageKey)
     }
 
     private func registerObservers() {
         let center = NotificationCenter.default
         observerTokens.append(
             center.addObserver(forName: .gideonDataModeChanged, object: nil, queue: .main) { [weak self] _ in
-                guard let self else { return }
-                Task { await self.reloadFromCurrentMode() }
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.load()
+                    self.removeDemoDataIfNeeded()
+                    let scope = SessionScope.current
+                    Task { await self.reloadFromCurrentMode(expectedScope: scope) }
+                }
             }
         )
         observerTokens.append(
             center.addObserver(forName: .gideonSessionChanged, object: nil, queue: .main) { [weak self] _ in
-                guard let self else { return }
-                Task { await self.reloadFromCurrentMode() }
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.load()
+                    self.removeDemoDataIfNeeded()
+                    let scope = SessionScope.current
+                    Task { await self.reloadFromCurrentMode(expectedScope: scope) }
+                }
             }
         )
     }
 
-    func reloadFromCurrentMode() async {
-        switch AppDataModeStore.shared.mode {
-        case .local:
-            load()
-        case .cloud:
-            await loadCloud()
-        }
+    func reloadFromCurrentMode(expectedScope: SessionScope? = nil) async {
+        let scope = expectedScope ?? .current
+        guard scope.isCurrent else { return }
+        load()
+        removeDemoDataIfNeeded()
+        if scope.canSyncCloud { await loadCloud(scope: scope) }
     }
 
-    private func loadCloud() async {
-        guard let userID = AppSessionStore.shared.currentUserID,
+    private func loadCloud(scope: SessionScope) async {
+        guard scope.isCurrent, scope.canSyncCloud,
+              let userID = scope.userID,
               let token = AppSessionStore.shared.currentAccessToken,
               let url = URL(string: "\(AppSessionStore.supabaseRESTURL)/projects?user_id=eq.\(userID)&select=*&order=created_at.desc") else {
-            projects = []
             return
         }
 
@@ -449,13 +493,14 @@ final class AppProjectStore: ObservableObject {
 
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
+            guard scope.isCurrent else { return }
             guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
                 return
             }
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
             let rows = try decoder.decode([SupabaseProjectDTO].self, from: data)
-            let cloudProjects = rows.map { $0.toRecord() }
+            let cloudProjects = rows.filter { $0.userID.lowercased() == userID.lowercased() }.map { $0.toRecord() }
             projects = cloudProjects.filter { !Self.looksLikeDemoProject($0) }
             persistLocal()
         } catch {
@@ -464,7 +509,8 @@ final class AppProjectStore: ObservableObject {
     }
 
     private func removeDemoDataIfNeeded() {
-        if UserDefaults.standard.bool(forKey: Self.demoCleanupKey) {
+        guard loadedScope?.isCurrent == true else { return }
+        if ScopedDefaults.standard.bool(forKey: Self.demoCleanupKey) {
             return
         }
 
@@ -474,7 +520,7 @@ final class AppProjectStore: ObservableObject {
             persistLocal()
         }
 
-        UserDefaults.standard.set(true, forKey: Self.demoCleanupKey)
+        ScopedDefaults.standard.set(true, forKey: Self.demoCleanupKey)
     }
 
     private static func looksLikeDemoProject(_ record: ProjectRecord) -> Bool {
@@ -490,8 +536,9 @@ final class AppProjectStore: ObservableObject {
         return false
     }
 
-    private func persistCloud(snapshot: [ProjectRecord]) async {
-        guard let userID = AppSessionStore.shared.currentUserID,
+    private func persistCloud(snapshot: [ProjectRecord], scope: SessionScope) async {
+        guard scope.isCurrent, scope.canSyncCloud,
+              let userID = scope.userID,
               let token = AppSessionStore.shared.currentAccessToken,
               !snapshot.isEmpty,
               let insertURL = URL(string: "\(AppSessionStore.supabaseRESTURL)/projects?on_conflict=user_id,id") else {
@@ -513,6 +560,7 @@ final class AppProjectStore: ObservableObject {
             insertRequest.httpBody = try encoder.encode(payload)
 
             let (_, response) = try await URLSession.shared.data(for: insertRequest)
+            guard scope.isCurrent else { return }
             guard let http = response as? HTTPURLResponse,
                   (200..<300).contains(http.statusCode) else {
                 print("[Gideon] project cloud insert failed for user \(userID)")
@@ -532,15 +580,18 @@ final class AppActivityStore: ObservableObject {
     private static let storageKey = "gideon.activity.v2"
     private static let demoCleanupKey = "gideon.activity.demoCleanup.v1"
     private var observerTokens: [NSObjectProtocol] = []
+    private var loadedScope: SessionScope?
 
     private init() {
         load()
         removeDemoDataIfNeeded()
         registerObservers()
-        Task { await reloadFromCurrentMode() }
+        let scope = SessionScope.current
+        Task { await reloadFromCurrentMode(expectedScope: scope) }
     }
 
     func add(title: String, detail: String, state: ActivityState = .active, source: String = "Gideon", assignee: String? = nil, projectID: UUID? = nil) {
+        guard loadedScope?.isCurrent == true else { return }
         let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanTitle.isEmpty else { return }
         let cleanSource = source.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -569,7 +620,8 @@ final class AppActivityStore: ObservableObject {
     }
 
     func list(state: ActivityState) -> [ActivityRecord] {
-        items.filter {
+        guard loadedScope?.isCurrent == true else { return [] }
+        return items.filter {
             if state == .backlog {
                 return $0.state == .backlog || $0.state == .next
             }
@@ -594,6 +646,7 @@ final class AppActivityStore: ObservableObject {
     }
 
     func updateState(id: UUID, to state: ActivityState) {
+        guard loadedScope?.isCurrent == true else { return }
         guard let index = items.firstIndex(where: { $0.id == id }) else { return }
         items[index].state = (state == .next ? .backlog : state)
         if items[index].state == .blocked, (items[index].assignee ?? "").isEmpty {
@@ -603,6 +656,7 @@ final class AppActivityStore: ObservableObject {
     }
 
     func completeTask(named title: String) -> Bool {
+        guard loadedScope?.isCurrent == true else { return false }
         let target = title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !target.isEmpty else { return false }
 
@@ -632,6 +686,7 @@ final class AppActivityStore: ObservableObject {
     }
 
     func blockTask(named title: String, assignee: String = "Human") -> Bool {
+        guard loadedScope?.isCurrent == true else { return false }
         let target = title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !target.isEmpty else { return false }
 
@@ -651,6 +706,8 @@ final class AppActivityStore: ObservableObject {
     }
 
     func related(to project: ProjectRecord) -> [ActivityRecord] {
+          guard loadedScope?.isCurrent == true,
+              AppProjectStore.shared.project(id: project.id) != nil else { return [] }
         let keyed = items.filter { $0.projectID == project.id }
         if !keyed.isEmpty {
             return keyed
@@ -663,24 +720,27 @@ final class AppActivityStore: ObservableObject {
     }
 
     func removeAll(forProjectID projectID: UUID) {
+        guard loadedScope?.isCurrent == true else { return }
         items.removeAll { $0.projectID == projectID }
         persist()
     }
 
     private func persist() {
-        switch AppDataModeStore.shared.mode {
-        case .local:
-            persistLocal()
-        case .cloud:
-            persistLocal()
+        guard loadedScope?.isCurrent == true else { return }
+        let scope = SessionScope.current
+        persistLocal()
+        if scope.canSyncCloud {
             Task { [snapshot = items] in
-                await persistCloud(snapshot: snapshot)
+                guard scope.isCurrent else { return }
+                await persistCloud(snapshot: snapshot, scope: scope)
             }
         }
     }
 
     private func load() {
-        guard let data = UserDefaults.standard.data(forKey: Self.storageKey),
+        items = []
+        loadedScope = .current
+        guard let data = ScopedDefaults.standard.data(forKey: Self.storageKey),
               let decoded = try? JSONDecoder().decode([ActivityRecord].self, from: data) else {
             return
         }
@@ -688,40 +748,49 @@ final class AppActivityStore: ObservableObject {
     }
 
     private func persistLocal() {
-        guard let data = try? JSONEncoder().encode(items) else { return }
-        UserDefaults.standard.set(data, forKey: Self.storageKey)
+        guard loadedScope?.isCurrent == true, let data = try? JSONEncoder().encode(items) else { return }
+        ScopedDefaults.standard.set(data, forKey: Self.storageKey)
     }
 
     private func registerObservers() {
         let center = NotificationCenter.default
         observerTokens.append(
             center.addObserver(forName: .gideonDataModeChanged, object: nil, queue: .main) { [weak self] _ in
-                guard let self else { return }
-                Task { await self.reloadFromCurrentMode() }
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.load()
+                    self.removeDemoDataIfNeeded()
+                    let scope = SessionScope.current
+                    Task { await self.reloadFromCurrentMode(expectedScope: scope) }
+                }
             }
         )
         observerTokens.append(
             center.addObserver(forName: .gideonSessionChanged, object: nil, queue: .main) { [weak self] _ in
-                guard let self else { return }
-                Task { await self.reloadFromCurrentMode() }
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.load()
+                    self.removeDemoDataIfNeeded()
+                    let scope = SessionScope.current
+                    Task { await self.reloadFromCurrentMode(expectedScope: scope) }
+                }
             }
         )
     }
 
-    private func reloadFromCurrentMode() async {
-        switch AppDataModeStore.shared.mode {
-        case .local:
-            load()
-        case .cloud:
-            await loadCloud()
-        }
+    private func reloadFromCurrentMode(expectedScope: SessionScope? = nil) async {
+        let scope = expectedScope ?? .current
+        guard scope.isCurrent else { return }
+        load()
+        removeDemoDataIfNeeded()
+        if scope.canSyncCloud { await loadCloud(scope: scope) }
     }
 
-    private func loadCloud() async {
-        guard let userID = AppSessionStore.shared.currentUserID,
+    private func loadCloud(scope: SessionScope) async {
+        guard scope.isCurrent, scope.canSyncCloud,
+              let userID = scope.userID,
               let token = AppSessionStore.shared.currentAccessToken,
               let url = URL(string: "\(AppSessionStore.supabaseRESTURL)/activity_items?user_id=eq.\(userID)&select=*&order=created_at.desc") else {
-            items = []
             return
         }
 
@@ -734,13 +803,14 @@ final class AppActivityStore: ObservableObject {
 
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
+            guard scope.isCurrent else { return }
             guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
                 return
             }
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
             let rows = try decoder.decode([SupabaseActivityDTO].self, from: data)
-            items = rows.map { $0.toRecord() }
+            items = rows.filter { $0.userID.lowercased() == userID.lowercased() }.map { $0.toRecord() }
             items = items.filter { !Self.looksLikeDemoActivity($0) }
             persistLocal()
         } catch {
@@ -749,7 +819,8 @@ final class AppActivityStore: ObservableObject {
     }
 
     private func removeDemoDataIfNeeded() {
-        if UserDefaults.standard.bool(forKey: Self.demoCleanupKey) {
+        guard loadedScope?.isCurrent == true else { return }
+        if ScopedDefaults.standard.bool(forKey: Self.demoCleanupKey) {
             return
         }
 
@@ -759,7 +830,7 @@ final class AppActivityStore: ObservableObject {
             persistLocal()
         }
 
-        UserDefaults.standard.set(true, forKey: Self.demoCleanupKey)
+        ScopedDefaults.standard.set(true, forKey: Self.demoCleanupKey)
     }
 
     private static func looksLikeDemoActivity(_ record: ActivityRecord) -> Bool {
@@ -775,8 +846,9 @@ final class AppActivityStore: ObservableObject {
         return false
     }
 
-    private func persistCloud(snapshot: [ActivityRecord]) async {
-        guard let userID = AppSessionStore.shared.currentUserID,
+    private func persistCloud(snapshot: [ActivityRecord], scope: SessionScope) async {
+        guard scope.isCurrent, scope.canSyncCloud,
+              let userID = scope.userID,
               let token = AppSessionStore.shared.currentAccessToken,
               !snapshot.isEmpty,
               let insertURL = URL(string: "\(AppSessionStore.supabaseRESTURL)/activity_items?on_conflict=user_id,id") else {
@@ -798,6 +870,7 @@ final class AppActivityStore: ObservableObject {
             insertRequest.httpBody = try encoder.encode(payload)
 
             let (_, response) = try await URLSession.shared.data(for: insertRequest)
+            guard scope.isCurrent else { return }
             guard let http = response as? HTTPURLResponse,
                   (200..<300).contains(http.statusCode) else {
                 print("[Gideon] activity cloud insert failed for user \(userID)")

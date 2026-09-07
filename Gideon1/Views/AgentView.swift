@@ -2,8 +2,9 @@ import SwiftUI
 
 struct AgentView: View {
     @State private var showingGideonProfile = false
-    @State private var showingAddAgentSheet = false
-    @State private var showingAddGroupSheet = false
+    @State private var addAgentForm: AgentFormSession?
+    @State private var addGroupForm: AgentFormSession?
+    @State private var loadedScope: SessionScope?
     @State private var subagents: [SubagentEntry] = []
     @State private var groups: [AgentGroupEntry] = []
     @State private var newAgentName = ""
@@ -12,7 +13,7 @@ struct AgentView: View {
     @State private var newGroupName = ""
     @State private var newGroupPurpose = ""
     @State private var newGroupAgents = ""
-    @State private var showingEditGroupSheet = false
+    @State private var editGroupForm: AgentFormSession?
     @State private var editingGroupID: UUID?
     @State private var editGroupName = ""
     @State private var editGroupPurpose = ""
@@ -37,6 +38,21 @@ struct AgentView: View {
             }
         }
         .transition(.opacity)
+        .onAppear {
+            if loadedScope != SessionScope.current {
+                resetForCurrentScope()
+            } else {
+                loadSubagents()
+                loadGroups()
+            }
+        }
+        // Observe outside agentList so profile navigation cannot hide a transition.
+        .onReceive(NotificationCenter.default.publisher(for: .gideonSessionChanged)) { _ in
+            resetForCurrentScope()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .gideonDataModeChanged)) { _ in
+            resetForCurrentScope()
+        }
     }
 
     private var agentList: some View {
@@ -50,7 +66,7 @@ struct AgentView: View {
                     HeaderMenuButton()
                     Spacer()
                     Button {
-                        showingAddAgentSheet = true
+                        beginAddAgent()
                     } label: {
                         Image(systemName: "plus")
                             .font(.system(size: 18, weight: .regular))
@@ -93,11 +109,7 @@ struct AgentView: View {
         }
         .padding(.top, 18)
         .padding(.bottom, 90)
-        .onAppear {
-            loadSubagents()
-            loadGroups()
-        }
-        .sheet(isPresented: $showingAddAgentSheet) {
+        .sheet(item: $addAgentForm, onDismiss: resetAddAgentForm) { form in
             NavigationStack {
                 Form {
                     Section("Agent") {
@@ -117,13 +129,13 @@ struct AgentView: View {
                     ToolbarItem(placement: .cancellationAction) {
                         Button("Cancel") {
                             resetAddAgentForm()
-                            showingAddAgentSheet = false
+                            addAgentForm = nil
                         }
                     }
 
                     ToolbarItem(placement: .confirmationAction) {
                         Button("Save") {
-                            saveSubagent()
+                            saveSubagent(origin: form)
                         }
                         .disabled(newAgentName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || newAgentAPIKey.isEmpty)
                     }
@@ -131,7 +143,7 @@ struct AgentView: View {
             }
             .presentationDetents([.medium])
         }
-        .sheet(isPresented: $showingAddGroupSheet) {
+        .sheet(item: $addGroupForm, onDismiss: resetAddGroupForm) { form in
             NavigationStack {
                 Form {
                     Section("Group") {
@@ -151,13 +163,13 @@ struct AgentView: View {
                     ToolbarItem(placement: .cancellationAction) {
                         Button("Cancel") {
                             resetAddGroupForm()
-                            showingAddGroupSheet = false
+                            addGroupForm = nil
                         }
                     }
 
                     ToolbarItem(placement: .confirmationAction) {
                         Button("Save") {
-                            saveGroup()
+                            saveGroup(origin: form)
                         }
                         .disabled(newGroupName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
@@ -165,7 +177,7 @@ struct AgentView: View {
             }
             .presentationDetents([.medium])
         }
-        .sheet(isPresented: $showingEditGroupSheet) {
+        .sheet(item: $editGroupForm, onDismiss: resetEditGroupForm) { form in
             NavigationStack {
                 Form {
                     Section("Group") {
@@ -182,13 +194,13 @@ struct AgentView: View {
                     ToolbarItem(placement: .cancellationAction) {
                         Button("Cancel") {
                             resetEditGroupForm()
-                            showingEditGroupSheet = false
+                            editGroupForm = nil
                         }
                     }
 
                     ToolbarItem(placement: .confirmationAction) {
                         Button("Save") {
-                            saveGroupEdits()
+                            saveGroupEdits(origin: form)
                         }
                         .disabled(editGroupName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
@@ -382,7 +394,37 @@ struct AgentView: View {
         }
     }
 
-    private func saveSubagent() {
+    private func resetForCurrentScope() {
+        addAgentForm = nil
+        addGroupForm = nil
+        editGroupForm = nil
+        showingGideonProfile = false
+        resetAddAgentForm()
+        resetAddGroupForm()
+        resetEditGroupForm()
+        groupActionStatus = ""
+        subagents = []
+        groups = []
+        loadedScope = .current
+        loadSubagents()
+        loadGroups()
+    }
+
+    private func beginAddAgent() {
+        guard let scope = loadedScope, scope.isCurrent else { return }
+        resetAddAgentForm()
+        addAgentForm = AgentFormSession(scope: scope)
+    }
+
+    private func beginAddGroup() {
+        guard let scope = loadedScope, scope.isCurrent else { return }
+        resetAddGroupForm()
+        addGroupForm = AgentFormSession(scope: scope)
+    }
+
+    private func saveSubagent(origin: AgentFormSession) {
+        guard origin.scope.isCurrent, loadedScope == origin.scope,
+              addAgentForm?.id == origin.id else { return }
         let trimmedName = newAgentName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedName.isEmpty, !newAgentAPIKey.isEmpty else { return }
 
@@ -397,11 +439,12 @@ struct AgentView: View {
         subagents.append(entry)
         persistSubagents()
         resetAddAgentForm()
-        showingAddAgentSheet = false
+        addAgentForm = nil
     }
 
     private func loadSubagents() {
-        guard let data = UserDefaults.standard.data(forKey: Self.subagentsStorageKey),
+        subagents = []
+        guard let data = ScopedDefaults.standard.data(forKey: Self.subagentsStorageKey),
               let decoded = try? JSONDecoder().decode([SubagentEntry].self, from: data) else {
             return
         }
@@ -409,7 +452,8 @@ struct AgentView: View {
     }
 
     private func loadGroups() {
-        guard let data = UserDefaults.standard.data(forKey: Self.groupsStorageKey),
+        groups = []
+        guard let data = ScopedDefaults.standard.data(forKey: Self.groupsStorageKey),
               let decoded = try? JSONDecoder().decode([AgentGroupEntry].self, from: data) else {
             return
         }
@@ -417,14 +461,16 @@ struct AgentView: View {
     }
 
     private func persistSubagents() {
+        guard loadedScope?.isCurrent == true else { return }
         if let data = try? JSONEncoder().encode(subagents) {
-            UserDefaults.standard.set(data, forKey: Self.subagentsStorageKey)
+            ScopedDefaults.standard.set(data, forKey: Self.subagentsStorageKey)
         }
     }
 
     private func persistGroups() {
+        guard loadedScope?.isCurrent == true else { return }
         if let data = try? JSONEncoder().encode(groups) {
-            UserDefaults.standard.set(data, forKey: Self.groupsStorageKey)
+            ScopedDefaults.standard.set(data, forKey: Self.groupsStorageKey)
         }
     }
 
@@ -434,7 +480,9 @@ struct AgentView: View {
         newAgentAPIKey = ""
     }
 
-    private func saveGroup() {
+    private func saveGroup(origin: AgentFormSession) {
+        guard origin.scope.isCurrent, loadedScope == origin.scope,
+              addGroupForm?.id == origin.id else { return }
         let trimmedName = newGroupName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedName.isEmpty else { return }
 
@@ -455,7 +503,7 @@ struct AgentView: View {
         groups.append(entry)
         persistGroups()
         resetAddGroupForm()
-        showingAddGroupSheet = false
+        addGroupForm = nil
     }
 
     private func resetAddGroupForm() {
@@ -465,14 +513,18 @@ struct AgentView: View {
     }
 
     private func beginEdit(_ group: AgentGroupEntry) {
+        guard let scope = loadedScope, scope.isCurrent,
+              groups.contains(where: { $0.id == group.id }) else { return }
         editingGroupID = group.id
         editGroupName = group.name
         editGroupPurpose = group.purpose
         editGroupAgents = group.agents.joined(separator: ", ")
-        showingEditGroupSheet = true
+        editGroupForm = AgentFormSession(scope: scope)
     }
 
-    private func saveGroupEdits() {
+    private func saveGroupEdits(origin: AgentFormSession) {
+        guard origin.scope.isCurrent, loadedScope == origin.scope,
+              editGroupForm?.id == origin.id else { return }
         guard let editingGroupID,
               let index = groups.firstIndex(where: { $0.id == editingGroupID }) else {
             return
@@ -498,16 +550,20 @@ struct AgentView: View {
         persistGroups()
         groupActionStatus = "Group updated"
         resetEditGroupForm()
-        showingEditGroupSheet = false
+        editGroupForm = nil
     }
 
     private func deleteGroup(_ id: UUID) {
+        guard loadedScope?.isCurrent == true,
+              groups.contains(where: { $0.id == id }) else { return }
         groups.removeAll { $0.id == id }
         persistGroups()
         groupActionStatus = "Group deleted"
     }
 
     private func triggerDeployStub(for group: AgentGroupEntry) {
+        guard loadedScope?.isCurrent == true,
+              groups.contains(where: { $0.id == group.id }) else { return }
         groupActionStatus = "Deploy queued for \(group.name) (stub only)"
     }
 
@@ -517,6 +573,12 @@ struct AgentView: View {
         editGroupPurpose = ""
         editGroupAgents = ""
     }
+}
+
+// Each presentation retains its origin, even if an old Save action outlives dismissal.
+private struct AgentFormSession: Identifiable {
+    let id = UUID()
+    let scope: SessionScope
 }
 
 private struct SubagentEntry: Identifiable, Codable {
@@ -654,13 +716,13 @@ private struct GideonProfileView: View {
     // MARK: - Agent Health
 
     private var subagentCount: Int {
-        guard let data = UserDefaults.standard.data(forKey: Self.subagentsStorageKey),
+        guard let data = ScopedDefaults.standard.data(forKey: Self.subagentsStorageKey),
               let decoded = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return 0 }
         return decoded.count
     }
 
     private var groupCount: Int {
-        guard let data = UserDefaults.standard.data(forKey: Self.groupsStorageKey),
+        guard let data = ScopedDefaults.standard.data(forKey: Self.groupsStorageKey),
               let decoded = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return 0 }
         return decoded.count
     }
