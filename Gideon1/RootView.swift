@@ -27,6 +27,7 @@ final class AppDataModeStore: ObservableObject {
                 return
             }
             UserDefaults.standard.set(modeRawValue, forKey: Self.storageKey)
+            SessionIsolation.activate(userID: AppSessionStore.shared.currentUserID, mode: modeRawValue)
             NotificationCenter.default.post(name: .gideonDataModeChanged, object: nil)
         }
     }
@@ -61,19 +62,90 @@ final class AppSessionStore: ObservableObject {
 
     static let supabaseURL = "https://fjlfxnzklhsesiifzuyq.supabase.co"
     static let supabasePublishableKey = "sb_publishable_edeAOO1Mo5E58cygxYgh3w_fc1MCY1m"
+    static let authRedirectURL = URL(string: "gideon1://auth/confirmed")!
 
-    private static let tokenKey = "gideon.session.token"
-    private static let userKey = "gideon.session.user.v1"
+    private let session: URLSession
+    private let defaults: UserDefaults
+    private let tokenKey: String
+    private let userKey: String
+    private let notificationCenter: NotificationCenter
+    private var authOperation: UUID?
+
+    private struct AuthAttempt {
+        let id: UUID
+        let scope: SessionScope
+    }
 
     static var supabaseRESTURL: String { "\(supabaseURL)/rest/v1" }
     var currentUserID: String? { currentUser?.id }
-    var currentAccessToken: String? { try? SecureKeyStore.shared.read(key: Self.tokenKey) }
+    var currentAccessToken: String? { try? SecureKeyStore.shared.read(key: tokenKey) }
 
     private init() {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.httpCookieStorage = nil
+        configuration.httpShouldSetCookies = false
+        configuration.urlCredentialStorage = nil
+        session = URLSession(configuration: configuration)
+        defaults = .standard
+        tokenKey = "gideon.session.token"
+        userKey = "gideon.session.user.v1"
+        notificationCenter = .default
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--isolation-tests") { return }
+        #endif
+        SessionIsolation.activate(userID: nil, mode: defaults.string(forKey: "gideon.data.mode.v1") ?? "cloud")
         restoreSession()
     }
 
+    /// Isolated transport/storage for hosted tests; never defaults to live token keys.
+    init(session: URLSession, defaults: UserDefaults, storageNamespace: String,
+         notificationCenter: NotificationCenter = .default, restore: Bool = false) {
+        precondition(!storageNamespace.isEmpty)
+        self.session = session
+        self.defaults = defaults
+        tokenKey = "\(storageNamespace).gideon.session.token"
+        userKey = "\(storageNamespace).gideon.session.user.v1"
+        self.notificationCenter = notificationCenter
+        if restore { restoreSession() }
+    }
+
+    private func beginAuthentication() -> AuthAttempt? {
+        guard authOperation == nil, !Task.isCancelled else { return nil }
+        let attempt = AuthAttempt(id: UUID(), scope: .current)
+        authOperation = attempt.id
+        isAuthenticating = true
+        authError = ""
+        authNotice = ""
+        return attempt
+    }
+
+    private func canComplete(_ attempt: AuthAttempt) -> Bool {
+        authOperation == attempt.id && attempt.scope == .current && !Task.isCancelled
+    }
+
+    private func finishAuthentication(_ attempt: AuthAttempt) {
+        // An old completion must not clear a newer request's busy state.
+        guard authOperation == attempt.id else { return }
+        authOperation = nil
+        isAuthenticating = false
+    }
+
+    private func refreshScopedStores(after scope: SessionScope) {
+        Task {
+            guard scope.isCurrent else { return }
+            await AccountStore.shared.reloadFromCurrentMode(expectedScope: scope)
+            guard scope.isCurrent else { return }
+            await AppProjectStore.shared.reloadFromCurrentMode(expectedScope: scope)
+            guard scope.isCurrent else { return }
+            await ProviderConnectionStore.shared.reloadFromCurrentMode(expectedScope: scope)
+            guard scope.isCurrent else { return }
+            await GideonModelSelectionStore.shared.reloadFromCurrentMode()
+        }
+    }
+
     func login(email: String, password: String) async {
+        guard let attempt = beginAuthentication() else { return }
+        defer { finishAuthentication(attempt) }
         let cleanEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanPassword = password.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanEmail.isEmpty, !cleanPassword.isEmpty else {
@@ -85,11 +157,6 @@ final class AppSessionStore: ObservableObject {
             authError = "Invalid Supabase URL configuration."
             return
         }
-
-        isAuthenticating = true
-        authError = ""
-        authNotice = ""
-        defer { isAuthenticating = false }
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -103,7 +170,8 @@ final class AppSessionStore: ObservableObject {
         ])
 
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await session.data(for: request)
+            guard canComplete(attempt) else { return }
             guard let http = response as? HTTPURLResponse else {
                 authError = "Invalid login response."
                 return
@@ -123,20 +191,25 @@ final class AppSessionStore: ObservableObject {
                 return
             }
 
-            try SecureKeyStore.shared.write(key: Self.tokenKey, value: accessToken)
+            try SecureKeyStore.shared.write(key: tokenKey, value: accessToken)
             if let userData = try? JSONEncoder().encode(decoded.user) {
-                UserDefaults.standard.set(userData, forKey: Self.userKey)
+                defaults.set(userData, forKey: userKey)
             }
 
+            SessionIsolation.activate(userID: decoded.user.id, mode: attempt.scope.mode)
             currentUser = decoded.user
             isAuthenticated = true
-            NotificationCenter.default.post(name: .gideonSessionChanged, object: nil)
+            notificationCenter.post(name: .gideonSessionChanged, object: nil)
+            refreshScopedStores(after: .current)
         } catch {
+            guard canComplete(attempt) else { return }
             authError = "Login error: \(error.localizedDescription)"
         }
     }
 
     func signUp(email: String, password: String) async {
+        guard let attempt = beginAuthentication() else { return }
+        defer { finishAuthentication(attempt) }
         let cleanEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanPassword = password.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanEmail.isEmpty, !cleanPassword.isEmpty else {
@@ -149,11 +222,6 @@ final class AppSessionStore: ObservableObject {
             return
         }
 
-        isAuthenticating = true
-        authError = ""
-        authNotice = ""
-        defer { isAuthenticating = false }
-
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.timeoutInterval = 30
@@ -162,11 +230,15 @@ final class AppSessionStore: ObservableObject {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try? JSONSerialization.data(withJSONObject: [
             "email": cleanEmail,
-            "password": cleanPassword
+            "password": cleanPassword,
+            "options": [
+                "redirectTo": Self.authRedirectURL.absoluteString
+            ]
         ])
 
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await session.data(for: request)
+            guard canComplete(attempt) else { return }
             guard let http = response as? HTTPURLResponse else {
                 authError = "Invalid signup response."
                 return
@@ -179,22 +251,27 @@ final class AppSessionStore: ObservableObject {
             // Supabase may require email confirmation based on project settings.
             if let decoded = try? JSONDecoder().decode(SupabaseLoginResponse.self, from: data),
                let accessToken = decoded.accessToken {
-                try SecureKeyStore.shared.write(key: Self.tokenKey, value: accessToken)
+                try SecureKeyStore.shared.write(key: tokenKey, value: accessToken)
                 if let userData = try? JSONEncoder().encode(decoded.user) {
-                    UserDefaults.standard.set(userData, forKey: Self.userKey)
+                    defaults.set(userData, forKey: userKey)
                 }
+                SessionIsolation.activate(userID: decoded.user.id, mode: attempt.scope.mode)
                 currentUser = decoded.user
                 isAuthenticated = true
-                NotificationCenter.default.post(name: .gideonSessionChanged, object: nil)
+                notificationCenter.post(name: .gideonSessionChanged, object: nil)
+                refreshScopedStores(after: .current)
             } else {
                 authNotice = "Account created. Check your email to verify your account, then log in."
             }
         } catch {
+            guard canComplete(attempt) else { return }
             authError = "Sign up error: \(error.localizedDescription)"
         }
     }
 
     func recoverPassword(email: String) async {
+        guard let attempt = beginAuthentication() else { return }
+        defer { finishAuthentication(attempt) }
         let cleanEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanEmail.isEmpty else {
             authError = "Enter your email first."
@@ -206,11 +283,6 @@ final class AppSessionStore: ObservableObject {
             return
         }
 
-        isAuthenticating = true
-        authError = ""
-        authNotice = ""
-        defer { isAuthenticating = false }
-
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.timeoutInterval = 30
@@ -218,11 +290,13 @@ final class AppSessionStore: ObservableObject {
         request.setValue("Bearer \(Self.supabasePublishableKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try? JSONSerialization.data(withJSONObject: [
-            "email": cleanEmail
+            "email": cleanEmail,
+            "redirectTo": Self.authRedirectURL.absoluteString
         ])
 
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await session.data(for: request)
+            guard canComplete(attempt) else { return }
             guard let http = response as? HTTPURLResponse else {
                 authError = "Invalid password reset response."
                 return
@@ -235,43 +309,44 @@ final class AppSessionStore: ObservableObject {
 
             authNotice = "If an account exists for that email, check your inbox for a password reset link."
         } catch {
+            guard canComplete(attempt) else { return }
             authError = "Password reset error: \(error.localizedDescription)"
         }
     }
 
     func logout() {
-        try? SecureKeyStore.shared.delete(key: Self.tokenKey)
-        UserDefaults.standard.removeObject(forKey: Self.userKey)
+        authOperation = nil
+        SessionIsolation.activate(userID: nil, mode: SessionScope.current.mode)
+        isAuthenticating = false
+        try? SecureKeyStore.shared.delete(key: tokenKey)
+        defaults.removeObject(forKey: userKey)
         currentUser = nil
         isAuthenticated = false
         authError = ""
         authNotice = ""
-        NotificationCenter.default.post(name: .gideonSessionChanged, object: nil)
+        notificationCenter.post(name: .gideonSessionChanged, object: nil)
+        refreshScopedStores(after: .current)
     }
 
     private func restoreSession() {
-        guard let token = try? SecureKeyStore.shared.read(key: Self.tokenKey),
+        guard let token = try? SecureKeyStore.shared.read(key: tokenKey),
               !token.isEmpty else {
             return
         }
 
-        if let data = UserDefaults.standard.data(forKey: Self.userKey),
+        if let data = defaults.data(forKey: userKey),
            let user = try? JSONDecoder().decode(SessionUser.self, from: data) {
+            SessionIsolation.activate(userID: user.id, mode: defaults.string(forKey: "gideon.data.mode.v1") ?? "cloud")
             currentUser = user
             isAuthenticated = true
-            NotificationCenter.default.post(name: .gideonSessionChanged, object: nil)
-            Task {
-                await AccountStore.shared.reloadFromCurrentMode()
-                await AppProjectStore.shared.reloadFromCurrentMode()
-                await ProviderConnectionStore.shared.reloadFromCurrentMode()
-                await GideonModelSelectionStore.shared.reloadFromCurrentMode()
-            }
+            notificationCenter.post(name: .gideonSessionChanged, object: nil)
+            refreshScopedStores(after: .current)
             return
         }
 
         // App deletion clears UserDefaults but may leave Keychain items behind.
         // Treat token-only state as stale so launch falls back to the login screen.
-        try? SecureKeyStore.shared.delete(key: Self.tokenKey)
+        try? SecureKeyStore.shared.delete(key: tokenKey)
         currentUser = nil
         isAuthenticated = false
     }
@@ -330,6 +405,23 @@ final class AppSessionStore: ObservableObject {
             }
         }
         return nil
+    }
+
+    func handleIncomingURL(_ url: URL) {
+        guard url.scheme?.lowercased() == Self.authRedirectURL.scheme,
+              url.host == Self.authRedirectURL.host else {
+            return
+        }
+
+        let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        let queryItems = components?.queryItems ?? []
+        if let error = queryItems.first(where: { $0.name == "error_description" || $0.name == "error" })?.value,
+           !error.isEmpty {
+            authError = "Confirmation link error: \(error)"
+            return
+        }
+
+        authNotice = "Email confirmed. You can log in now."
     }
 }
 
@@ -559,11 +651,16 @@ struct RootView: View {
     @State private var selection: AppTab = .messages
     @StateObject private var messagesStore = MessagesSessionStore()
 
-    private func refreshAllStores() async {
+    private func refreshAllStores(scope: SessionScope) async {
+        guard scope.isCurrent else { return }
         await AccountStore.shared.reloadFromCurrentMode()
+        guard scope.isCurrent else { return }
         await AppProjectStore.shared.reloadFromCurrentMode()
+        guard scope.isCurrent else { return }
         await ProviderConnectionStore.shared.reloadFromCurrentMode()
+        guard scope.isCurrent else { return }
         await GideonModelSelectionStore.shared.reloadFromCurrentMode()
+        guard scope.isCurrent else { return }
         await messagesStore.reloadFromCurrentMode()
     }
 
@@ -620,11 +717,13 @@ struct RootView: View {
         }
         .onAppear {
             guard session.isAuthenticated else { return }
-            Task { await refreshAllStores() }
+            let scope = SessionScope.current
+            Task { await refreshAllStores(scope: scope) }
         }
         .onChange(of: session.isAuthenticated) { _, isAuthenticated in
             guard isAuthenticated else { return }
-            Task { await refreshAllStores() }
+            let scope = SessionScope.current
+            Task { await refreshAllStores(scope: scope) }
         }
     }
 }

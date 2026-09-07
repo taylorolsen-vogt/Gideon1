@@ -24,6 +24,7 @@
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>com.googleusercontent.apps.1098275217535-219lt8dtcmeumkkg3hmutnio2agmiihc</string>
+				<string>gideon1</string>
 			</array>
 		</dict>
 	</array>
