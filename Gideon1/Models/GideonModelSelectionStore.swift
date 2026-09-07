@@ -471,7 +471,8 @@ final class GideonModelSelectionStore: ObservableObject {
         let discoveredModels = await ProviderConnectionStore.shared.availableModelIdentifiers(
             providerName: trimmedProvider,
             endpoint: trimmedURL,
-            apiKey: trimmedAPIKey
+            apiKey: trimmedAPIKey,
+            expectedScope: scope
         )
         guard scope.isCurrent else { return false }
         let effectiveModels = Self.normalizeCustomModels(discoveredModels + normalizedCustomModels)
@@ -529,7 +530,8 @@ final class GideonModelSelectionStore: ObservableObject {
             let discoveredModels = await ProviderConnectionStore.shared.availableModelIdentifiers(
                 providerName: profile.provider,
                 endpoint: profile.baseURL,
-                apiKey: trimmedAPIKey
+                apiKey: trimmedAPIKey,
+                expectedScope: scope
             )
             guard scope.isCurrent, apiProviders == originalProfiles else { return }
             guard !discoveredModels.isEmpty else {
