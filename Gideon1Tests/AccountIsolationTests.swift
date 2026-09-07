@@ -79,6 +79,23 @@ final class AccountIsolationTests: XCTestCase {
         try assertUnavailableBCache(corrupt: true)
     }
 
+    func testSessionChangesNeverDeleteSeededState() throws {
+        let fixture = Fixture()
+        defer { fixture.cleanup() }
+        let a = try fixture.seed(label: "A")
+        let before = fixture.snapshot()
+
+        fixture.activate(fixture.userB)
+        fixture.assertEmpty()
+
+        fixture.activate(fixture.userA)
+        fixture.assertRestored(a)
+        XCTAssertEqual(fixture.snapshot(), before, "Session changes must restore scoped state, not delete it")
+        XCTAssertEqual(AppProjectStore.shared.projects.count, 1)
+        XCTAssertEqual(AppActivityStore.shared.items.count, 1)
+        XCTAssertEqual(GideonModelSelectionStore.shared.apiProviders.count, 1)
+    }
+
     private func assertUnavailableBCache(corrupt: Bool) throws {
         let fixture = Fixture()
         defer { fixture.cleanup() }
