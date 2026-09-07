@@ -83,6 +83,19 @@ final class CloudCredentialStore {
         guard scope.isCurrent else { return }
     }
 
+    func purgeAll(expectedScope: SessionScope? = nil) async {
+        let scope = expectedScope ?? .current
+        guard scope.isCurrent, scope.canSyncCloud,
+              let remoteSecrets = await fetchSecrets(scope: scope), scope.isCurrent else {
+            return
+        }
+
+        for secret in remoteSecrets {
+            guard scope.isCurrent else { return }
+            await remove(ownerID: secret.ownerID, kind: secret.kind, expectedScope: scope)
+        }
+    }
+
     private func fetchSecrets(scope: SessionScope) async -> [RemoteCredentialSecret]? {
         guard scope.isCurrent, scope.canSyncCloud,
               let request = makeRPCRequest(function: "gideon_get_credential_secrets", body: [:], scope: scope) else {
