@@ -44,6 +44,8 @@ struct MessagesView: View {
                 .buttonStyle(.plain)
 
                 HStack {
+                    HeaderMenuButton()
+
                     Spacer(minLength: 0)
 
                     Button {
