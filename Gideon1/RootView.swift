@@ -70,6 +70,19 @@ final class AppSessionStore: ObservableObject {
     private let userKey: String
     private let notificationCenter: NotificationCenter
     private var authOperation: UUID?
+    private static let seenUsersKey = "gideon.session.seenUsers.v1"
+    private static let blankSlateScopedKeys = [
+        "gideon.accounts.v1",
+        "gideon.projects.v2",
+        "gideon.activity.v2",
+        "gideon.providerConnections.v1",
+        "gideon.selectedModelID",
+        "gideon.maxNewTokens",
+        "gideon.reasoningMode",
+        "gideon.apiProviders.v1",
+        "gideon.chatSessions.v2",
+        "gideon.chatSessions.selected.v1"
+    ]
 
     private struct AuthAttempt {
         let id: UUID
@@ -143,6 +156,20 @@ final class AppSessionStore: ObservableObject {
         }
     }
 
+    private func applyFirstLoginBlankSlateIfNeeded(for userID: String) {
+        let normalizedUserID = userID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalizedUserID.isEmpty else { return }
+        var seenUsers = Set(defaults.stringArray(forKey: Self.seenUsersKey) ?? [])
+        let isFirstSeen = !seenUsers.contains(normalizedUserID)
+        if isFirstSeen {
+            for key in Self.blankSlateScopedKeys {
+                ScopedDefaults.standard.removeObject(forKey: key)
+            }
+            seenUsers.insert(normalizedUserID)
+            defaults.set(Array(seenUsers).sorted(), forKey: Self.seenUsersKey)
+        }
+    }
+
     func login(email: String, password: String) async {
         guard let attempt = beginAuthentication() else { return }
         defer { finishAuthentication(attempt) }
@@ -197,6 +224,7 @@ final class AppSessionStore: ObservableObject {
             }
 
             SessionIsolation.activate(userID: decoded.user.id, mode: attempt.scope.mode)
+            applyFirstLoginBlankSlateIfNeeded(for: decoded.user.id)
             currentUser = decoded.user
             isAuthenticated = true
             notificationCenter.post(name: .gideonSessionChanged, object: nil)
@@ -256,6 +284,7 @@ final class AppSessionStore: ObservableObject {
                     defaults.set(userData, forKey: userKey)
                 }
                 SessionIsolation.activate(userID: decoded.user.id, mode: attempt.scope.mode)
+                applyFirstLoginBlankSlateIfNeeded(for: decoded.user.id)
                 currentUser = decoded.user
                 isAuthenticated = true
                 notificationCenter.post(name: .gideonSessionChanged, object: nil)
