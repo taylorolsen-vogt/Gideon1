@@ -197,7 +197,6 @@ final class AppSessionStore: ObservableObject {
             }
 
             SessionIsolation.activate(userID: decoded.user.id, mode: attempt.scope.mode)
-            guard canComplete(attempt) else { return }
             notificationCenter.post(name: .gideonSessionChanged, object: nil)
             currentUser = decoded.user
             isAuthenticated = true
@@ -257,7 +256,6 @@ final class AppSessionStore: ObservableObject {
                     defaults.set(userData, forKey: userKey)
                 }
                 SessionIsolation.activate(userID: decoded.user.id, mode: attempt.scope.mode)
-                guard canComplete(attempt) else { return }
                 notificationCenter.post(name: .gideonSessionChanged, object: nil)
                 currentUser = decoded.user
                 isAuthenticated = true
