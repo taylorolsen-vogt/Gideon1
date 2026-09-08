@@ -198,9 +198,9 @@ final class AppSessionStore: ObservableObject {
 
             SessionIsolation.activate(userID: decoded.user.id, mode: attempt.scope.mode)
             guard canComplete(attempt) else { return }
+            notificationCenter.post(name: .gideonSessionChanged, object: nil)
             currentUser = decoded.user
             isAuthenticated = true
-            notificationCenter.post(name: .gideonSessionChanged, object: nil)
             refreshScopedStores(after: .current)
         } catch {
             guard canComplete(attempt) else { return }
@@ -258,9 +258,9 @@ final class AppSessionStore: ObservableObject {
                 }
                 SessionIsolation.activate(userID: decoded.user.id, mode: attempt.scope.mode)
                 guard canComplete(attempt) else { return }
+                notificationCenter.post(name: .gideonSessionChanged, object: nil)
                 currentUser = decoded.user
                 isAuthenticated = true
-                notificationCenter.post(name: .gideonSessionChanged, object: nil)
                 refreshScopedStores(after: .current)
             } else {
                 authNotice = "Account created. Check your email to verify your account, then log in."
@@ -322,11 +322,11 @@ final class AppSessionStore: ObservableObject {
         isAuthenticating = false
         try? SecureKeyStore.shared.delete(key: tokenKey)
         defaults.removeObject(forKey: userKey)
-        currentUser = nil
-        isAuthenticated = false
         authError = ""
         authNotice = ""
         notificationCenter.post(name: .gideonSessionChanged, object: nil)
+        currentUser = nil
+        isAuthenticated = false
         refreshScopedStores(after: .current)
     }
 
@@ -339,9 +339,9 @@ final class AppSessionStore: ObservableObject {
         if let data = defaults.data(forKey: userKey),
            let user = try? JSONDecoder().decode(SessionUser.self, from: data) {
             SessionIsolation.activate(userID: user.id, mode: defaults.string(forKey: "gideon.data.mode.v1") ?? "cloud")
+            notificationCenter.post(name: .gideonSessionChanged, object: nil)
             currentUser = user
             isAuthenticated = true
-            notificationCenter.post(name: .gideonSessionChanged, object: nil)
             refreshScopedStores(after: .current)
             return
         }
