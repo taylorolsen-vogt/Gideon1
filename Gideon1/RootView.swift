@@ -55,6 +55,7 @@ final class AppSessionStore: ObservableObject {
     static let shared = AppSessionStore()
 
     @Published private(set) var isAuthenticated = false
+    @Published private(set) var isGuestMode = false
     @Published private(set) var currentUser: SessionUser?
     @Published var authError = ""
     @Published var authNotice = ""
@@ -310,6 +311,22 @@ final class AppSessionStore: ObservableObject {
         notificationCenter.post(name: .gideonSessionChanged, object: nil)
         currentUser = nil
         isAuthenticated = false
+        isGuestMode = false
+    }
+
+    /// Local-only path: never touches Supabase. Uses the same signed-out scope
+    /// as a fresh install, so the on-device model and local data work with zero
+    /// network dependency and zero account setup.
+    func continueAsGuest() {
+        authOperation = nil
+        SessionIsolation.activate(userID: nil, mode: "local")
+        isAuthenticating = false
+        authError = ""
+        authNotice = ""
+        notificationCenter.post(name: .gideonSessionChanged, object: nil)
+        currentUser = nil
+        isAuthenticated = false
+        isGuestMode = true
     }
 
     private func restoreSession() {
@@ -582,6 +599,15 @@ struct LoginView: View {
             }
             .buttonStyle(.plain)
 
+            Button {
+                session.continueAsGuest()
+            } label: {
+                Text("Continue without an account")
+                    .font(.system(size: 12.5, weight: .medium))
+                    .foregroundStyle(Color.black.opacity(0.6))
+            }
+            .buttonStyle(.plain)
+
             if !session.authNotice.isEmpty {
                 Text(session.authNotice)
                     .font(.system(size: 12.5, weight: .medium))
@@ -636,7 +662,7 @@ struct RootView: View {
 
     var body: some View {
         Group {
-            if session.isAuthenticated {
+            if session.isAuthenticated || session.isGuestMode {
                 ZStack {
                     AppTheme.background.ignoresSafeArea()
 

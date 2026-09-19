@@ -33,17 +33,19 @@ struct HeaderMenuButton: View {
         Menu {
             userSummary
 
-            Section("Data Mode") {
-                Button {
-                    dataMode.mode = .cloud
-                } label: {
-                    Label("Cloud", systemImage: dataMode.mode == .cloud ? "checkmark" : "icloud")
-                }
+            if !session.isGuestMode {
+                Section("Data Mode") {
+                    Button {
+                        dataMode.mode = .cloud
+                    } label: {
+                        Label("Cloud", systemImage: dataMode.mode == .cloud ? "checkmark" : "icloud")
+                    }
 
-                Button {
-                    dataMode.mode = .local
-                } label: {
-                    Label("Local", systemImage: dataMode.mode == .local ? "checkmark" : "lock")
+                    Button {
+                        dataMode.mode = .local
+                    } label: {
+                        Label("Local", systemImage: dataMode.mode == .local ? "checkmark" : "lock")
+                    }
                 }
             }
 
@@ -51,7 +53,7 @@ struct HeaderMenuButton: View {
                 Button(role: .destructive) {
                     session.logout()
                 } label: {
-                    Label("Log Out", systemImage: "rectangle.portrait.and.arrow.right")
+                    Label(session.isGuestMode ? "Exit Guest Mode" : "Log Out", systemImage: "rectangle.portrait.and.arrow.right")
                 }
             }
         } label: {
@@ -66,14 +68,14 @@ struct HeaderMenuButton: View {
 
     @ViewBuilder
     private var userSummary: some View {
-        let email = session.currentUser?.email ?? "Not signed in"
+        let email = session.currentUser?.email ?? (session.isGuestMode ? "Guest (no account)" : "Not signed in")
         let name = session.currentUser?.name?.trimmingCharacters(in: .whitespacesAndNewlines)
         let hasName = !(name?.isEmpty ?? true)
-        let modeLabel = dataMode.mode == .cloud ? "Cloud mode" : "Local mode"
+        let modeLabel = session.isGuestMode ? "On-device only" : (dataMode.mode == .cloud ? "Cloud mode" : "Local mode")
 
         Section {
             VStack(alignment: .leading, spacing: 4) {
-                Text("Signed in as")
+                Text(session.isGuestMode ? "Browsing as" : "Signed in as")
                     .font(.system(size: 9.5, weight: .semibold))
                     .tracking(1.2)
                     .foregroundStyle(AppTheme.textTertiary)
