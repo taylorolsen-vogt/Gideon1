@@ -130,19 +130,6 @@ final class AppSessionStore: ObservableObject {
         isAuthenticating = false
     }
 
-    private func refreshScopedStores(after scope: SessionScope) {
-        Task {
-            guard scope.isCurrent else { return }
-            await AccountStore.shared.reloadFromCurrentMode(expectedScope: scope)
-            guard scope.isCurrent else { return }
-            await AppProjectStore.shared.reloadFromCurrentMode(expectedScope: scope)
-            guard scope.isCurrent else { return }
-            await ProviderConnectionStore.shared.reloadFromCurrentMode(expectedScope: scope)
-            guard scope.isCurrent else { return }
-            await GideonModelSelectionStore.shared.reloadFromCurrentMode()
-        }
-    }
-
     func login(email: String, password: String) async {
         guard let attempt = beginAuthentication() else { return }
         defer { finishAuthentication(attempt) }
@@ -200,7 +187,6 @@ final class AppSessionStore: ObservableObject {
             notificationCenter.post(name: .gideonSessionChanged, object: nil)
             currentUser = decoded.user
             isAuthenticated = true
-            refreshScopedStores(after: .current)
         } catch {
             guard canComplete(attempt) else { return }
             authError = "Login error: \(error.localizedDescription)"
@@ -259,7 +245,6 @@ final class AppSessionStore: ObservableObject {
                 notificationCenter.post(name: .gideonSessionChanged, object: nil)
                 currentUser = decoded.user
                 isAuthenticated = true
-                refreshScopedStores(after: .current)
             } else {
                 authNotice = "Account created. Check your email to verify your account, then log in."
             }
@@ -325,7 +310,6 @@ final class AppSessionStore: ObservableObject {
         notificationCenter.post(name: .gideonSessionChanged, object: nil)
         currentUser = nil
         isAuthenticated = false
-        refreshScopedStores(after: .current)
     }
 
     private func restoreSession() {
@@ -340,7 +324,6 @@ final class AppSessionStore: ObservableObject {
             notificationCenter.post(name: .gideonSessionChanged, object: nil)
             currentUser = user
             isAuthenticated = true
-            refreshScopedStores(after: .current)
             return
         }
 
@@ -651,19 +634,6 @@ struct RootView: View {
     @State private var selection: AppTab = .messages
     @StateObject private var messagesStore = MessagesSessionStore()
 
-    private func refreshAllStores(scope: SessionScope) async {
-        guard scope.isCurrent else { return }
-        await AccountStore.shared.reloadFromCurrentMode()
-        guard scope.isCurrent else { return }
-        await AppProjectStore.shared.reloadFromCurrentMode()
-        guard scope.isCurrent else { return }
-        await ProviderConnectionStore.shared.reloadFromCurrentMode()
-        guard scope.isCurrent else { return }
-        await GideonModelSelectionStore.shared.reloadFromCurrentMode()
-        guard scope.isCurrent else { return }
-        await messagesStore.reloadFromCurrentMode()
-    }
-
     var body: some View {
         Group {
             if session.isAuthenticated {
@@ -714,16 +684,6 @@ struct RootView: View {
             } else {
                 LoginView()
             }
-        }
-        .onAppear {
-            guard session.isAuthenticated else { return }
-            let scope = SessionScope.current
-            Task { await refreshAllStores(scope: scope) }
-        }
-        .onChange(of: session.isAuthenticated) { _, isAuthenticated in
-            guard isAuthenticated else { return }
-            let scope = SessionScope.current
-            Task { await refreshAllStores(scope: scope) }
         }
     }
 }

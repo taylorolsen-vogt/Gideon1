@@ -10,6 +10,8 @@ struct CloudCredentialBinding: Sendable {
 final class CloudCredentialStore {
     static let shared = CloudCredentialStore()
 
+    private var inFlightFetch: (scope: SessionScope, task: Task<[RemoteCredentialSecret]?, Never>)?
+
     private init() {}
 
     func reconcile(_ bindings: [CloudCredentialBinding], expectedScope: SessionScope? = nil) async {
@@ -84,21 +86,36 @@ final class CloudCredentialStore {
     }
 
     private func fetchSecrets(scope: SessionScope) async -> [RemoteCredentialSecret]? {
-        guard scope.isCurrent, scope.canSyncCloud,
-              let request = makeRPCRequest(function: "gideon_get_credential_secrets", body: [:], scope: scope) else {
-            return nil
+        guard scope.isCurrent, scope.canSyncCloud else { return nil }
+
+        // Two stores (AccountStore, GideonModelSelectionStore) both reconcile on the
+        // same session-changed event; share one in-flight request instead of firing
+        // a duplicate RPC call for the same scope.
+        if let inFlight = inFlightFetch, inFlight.scope == scope {
+            return await inFlight.task.value
         }
 
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard scope.isCurrent else { return nil }
-            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+        let task = Task { [weak self] () -> [RemoteCredentialSecret]? in
+            guard let self, let request = self.makeRPCRequest(function: "gideon_get_credential_secrets", body: [:], scope: scope) else {
                 return nil
             }
-            return try JSONDecoder().decode([RemoteCredentialSecret].self, from: data)
-        } catch {
-            return nil
+            do {
+                let (data, response) = try await URLSession.shared.data(for: request)
+                guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+                    return nil
+                }
+                return try JSONDecoder().decode([RemoteCredentialSecret].self, from: data)
+            } catch {
+                return nil
+            }
         }
+        inFlightFetch = (scope, task)
+        let result = await task.value
+        if inFlightFetch?.scope == scope {
+            inFlightFetch = nil
+        }
+        guard scope.isCurrent else { return nil }
+        return result
     }
 
     private func makeRPCRequest(function: String, body: [String: String], scope: SessionScope) -> URLRequest? {
